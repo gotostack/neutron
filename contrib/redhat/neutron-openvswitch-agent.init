@@ -15,7 +15,7 @@ exec="/usr/bin/$prog"
 configs=(
     "/usr/share/$proj/$proj-dist.conf" \
     "/etc/$proj/$proj.conf" \
-    "/etc/$proj/plugins/openvswitch/ovs_neutron_plugin.ini" \
+    "/etc/$proj/plugin.ini" \
 )
 pidfile="/var/run/$proj/$prog.pid"
 
