@@ -2,7 +2,7 @@
 
 Name:		openstack-neutron
 Version:	2014.1.2
-Release:	1%{?dist}
+Release:	2%{?dist}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.3.b3
 
@@ -1041,6 +1041,14 @@ fi
 
 
 %changelog
+* Tue Sep  9 2014 Jian Wen <wenjian@letv.com> 2014.1.2-2
+- Set OVS_HYBRID_PLUG option to reflect SG status.
+  Fixes OPENSTACK-138
+- RPM spec: fix config file path of ovs agent.
+  Fixes OPENSTACK-136
+- RPM spec: Change vendor to Letv Cloud Computing
+- RPM spec: drop all merged patches
+
 * Mon Aug 11 2014 Ihar Hrachyshka <ihrachys@redhat.com> 2014.1.2-1
 - Update to upstream 2014.1.2
 
