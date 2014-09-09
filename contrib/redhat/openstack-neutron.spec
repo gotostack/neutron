@@ -558,7 +558,7 @@ install -p -D -m 640 %{SOURCE90} %{buildroot}%{_datadir}/neutron/neutron-dist.co
 # Install version info file
 cat > %{buildroot}%{_sysconfdir}/neutron/release <<EOF
 [Neutron]
-vendor = Fedora Project
+vendor = Letv Cloud Computing
 product = OpenStack Neutron
 package = %{release}
 EOF
