@@ -44,14 +44,6 @@ Source32:	neutron-metering-agent.init
 Source42:	neutron-metering-agent.upstart
 
 Source90:	neutron-dist.conf
-#
-# patches_base=+1
-#
-Patch0001: 0001-Remove-dnsmasq-version-warning.patch
-Patch0002: 0002-remove-runtime-dependency-on-pbr.patch
-Patch0003: 0003-Sync-service-and-systemd-modules-from-oslo-incubator.patch
-Patch0004: 0004-Removed-signing_dir-from-neutron.conf.patch
-Patch0005: 0005-Remove-kernel-version-check-for-OVS-VXLAN.patch
 
 BuildArch:	noarch
 
@@ -458,11 +450,6 @@ IPSec.
 %prep
 %setup -q -n neutron-%{version}
 
-%patch0001 -p1
-%patch0002 -p1
-%patch0003 -p1
-%patch0004 -p1
-%patch0005 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
