@@ -1,0 +1,34 @@
+#!/usr/bin/env python
+
+# print the regex pattern for exluded unit tests
+
+tests = []
+
+plugins = ['bigswitch', 'brocade', 'cisco', 'embrane', 'hyperv',
+           'ibm', 'metaplugin', 'linuxbridge', 'midonet', 'mlnx', 'nec',
+           'nuage', 'ofagent', 'oneconvergence', 'plumgrid', 'ryu', 'vmware']
+tests += plugins
+
+db_tests = map(lambda x: 'db.' + x,
+               ['vpn', 'loadbalancer'])
+tests += db_tests
+
+ml2_mechanism_tests = map(lambda x: 'ml2.' + x,
+                          ['test_mechanism_ncs',
+                           'test_mechanism_odl',
+                           'test_mech_hyperv',
+                           'test_mech_linuxbridge'])
+tests += ml2_mechanism_tests
+
+ml2_drivers = map(lambda x: 'ml2.drivers.' + x,
+                  ['brocade', 'cisco',
+                   'test_arista_mechanism_driver',
+                   'test_bigswitch_mech',
+                   'test_mech_mlnx',
+                   'test_ofagent_mech'])
+tests += ml2_drivers
+
+exclude_regex = "|".join(map(lambda p: "^neutron.tests.unit." + p,
+                             tests))
+
+print exclude_regex
