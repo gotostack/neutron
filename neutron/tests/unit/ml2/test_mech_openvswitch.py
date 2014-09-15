@@ -55,7 +55,7 @@ class OpenvswitchMechanismBaseTestCase(base.AgentMechanismBaseTestCase):
                               False,
                               group='SECURITYGROUP')
         self.driver_without_sg = mech_openvswitch.OpenvswitchMechanismDriver()
-        self.assertFalse(self.driver_without_sg.supported_vnic_types[
+        self.assertFalse(self.driver_without_sg.vif_details[
             portbindings.OVS_HYBRID_PLUG])
 
     def test_portbindings_ovs_hybrid_plug_with_sg_enabled(self):
@@ -63,7 +63,7 @@ class OpenvswitchMechanismBaseTestCase(base.AgentMechanismBaseTestCase):
                               True,
                               group='SECURITYGROUP')
         self.driver_with_sg = mech_openvswitch.OpenvswitchMechanismDriver()
-        self.assertTrue(self.driver_with_sg.supported_vnic_types[
+        self.assertTrue(self.driver_with_sg.vif_details[
             portbindings.OVS_HYBRID_PLUG])
 
 
