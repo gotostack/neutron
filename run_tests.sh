@@ -126,6 +126,11 @@ function run_tests {
     TESTRTESTS="$TESTRTESTS --slowest"
   fi
 
+  EXCLUDE_REGEX=`./tools/get_ut_exclude_regexp`
+  ./tools/with_venv.sh testr list-tests | egrep -v ${EXCLUDE_REGEX} | \
+      tail -n +2 > ./letv_unit_tests
+  testrargs="$testrargs --load-list=letv_unit_tests"
+
   # Just run the test suites in current environment
   set +e
   testrargs=`echo "$testrargs" | sed -e's/^\s*\(.*\)\s*$/\1/'`

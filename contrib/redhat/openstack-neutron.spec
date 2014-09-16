@@ -2,7 +2,7 @@
 
 Name:		openstack-neutron
 Version:	2014.1.2
-Release:	1%{?dist}
+Release:	2%{?dist}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.3.b3
 
@@ -44,14 +44,6 @@ Source32:	neutron-metering-agent.init
 Source42:	neutron-metering-agent.upstart
 
 Source90:	neutron-dist.conf
-#
-# patches_base=+1
-#
-Patch0001: 0001-Remove-dnsmasq-version-warning.patch
-Patch0002: 0002-remove-runtime-dependency-on-pbr.patch
-Patch0003: 0003-Sync-service-and-systemd-modules-from-oslo-incubator.patch
-Patch0004: 0004-Removed-signing_dir-from-neutron.conf.patch
-Patch0005: 0005-Remove-kernel-version-check-for-OVS-VXLAN.patch
 
 BuildArch:	noarch
 
@@ -458,11 +450,6 @@ IPSec.
 %prep
 %setup -q -n neutron-%{version}
 
-%patch0001 -p1
-%patch0002 -p1
-%patch0003 -p1
-%patch0004 -p1
-%patch0005 -p1
 
 find neutron -name \*.py -exec sed -i '/\/usr\/bin\/env python/{d;q}' {} +
 
@@ -571,7 +558,7 @@ install -p -D -m 640 %{SOURCE90} %{buildroot}%{_datadir}/neutron/neutron-dist.co
 # Install version info file
 cat > %{buildroot}%{_sysconfdir}/neutron/release <<EOF
 [Neutron]
-vendor = Fedora Project
+vendor = Letv Cloud Computing
 product = OpenStack Neutron
 package = %{release}
 EOF
@@ -1054,6 +1041,14 @@ fi
 
 
 %changelog
+* Tue Sep  9 2014 Jian Wen <wenjian@letv.com> 2014.1.2-2
+- Set OVS_HYBRID_PLUG option to reflect SG status.
+  Fixes OPENSTACK-138
+- RPM spec: fix config file path of ovs agent.
+  Fixes OPENSTACK-136
+- RPM spec: Change vendor to Letv Cloud Computing
+- RPM spec: drop all merged patches
+
 * Mon Aug 11 2014 Ihar Hrachyshka <ihrachys@redhat.com> 2014.1.2-1
 - Update to upstream 2014.1.2
 

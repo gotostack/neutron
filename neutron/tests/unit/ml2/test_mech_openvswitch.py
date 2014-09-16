@@ -13,6 +13,8 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from oslo.config import cfg
+
 from neutron.common import constants
 from neutron.extensions import portbindings
 from neutron.plugins.ml2.drivers import mech_openvswitch
@@ -47,6 +49,22 @@ class OpenvswitchMechanismBaseTestCase(base.AgentMechanismBaseTestCase):
         super(OpenvswitchMechanismBaseTestCase, self).setUp()
         self.driver = mech_openvswitch.OpenvswitchMechanismDriver()
         self.driver.initialize()
+
+    def test_portbindings_ovs_hybrid_plug_with_sg_disabled(self):
+        cfg.CONF.set_override('enable_security_group',
+                              False,
+                              group='SECURITYGROUP')
+        self.driver_without_sg = mech_openvswitch.OpenvswitchMechanismDriver()
+        self.assertFalse(self.driver_without_sg.vif_details[
+            portbindings.OVS_HYBRID_PLUG])
+
+    def test_portbindings_ovs_hybrid_plug_with_sg_enabled(self):
+        cfg.CONF.set_override('enable_security_group',
+                              True,
+                              group='SECURITYGROUP')
+        self.driver_with_sg = mech_openvswitch.OpenvswitchMechanismDriver()
+        self.assertTrue(self.driver_with_sg.vif_details[
+            portbindings.OVS_HYBRID_PLUG])
 
 
 class OpenvswitchMechanismGenericTestCase(OpenvswitchMechanismBaseTestCase,

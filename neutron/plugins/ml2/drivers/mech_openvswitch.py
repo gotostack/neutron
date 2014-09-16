@@ -13,6 +13,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+from neutron.agent import securitygroups_rpc as sg_rpc
 from neutron.common import constants
 from neutron.extensions import portbindings
 from neutron.openstack.common import log
@@ -37,7 +38,7 @@ class OpenvswitchMechanismDriver(mech_agent.SimpleAgentMechanismDriverBase):
             constants.AGENT_TYPE_OVS,
             portbindings.VIF_TYPE_OVS,
             {portbindings.CAP_PORT_FILTER: True,
-             portbindings.OVS_HYBRID_PLUG: True})
+             portbindings.OVS_HYBRID_PLUG: sg_rpc.is_firewall_enabled()})
 
     def check_segment_for_agent(self, segment, agent):
         mappings = agent['configurations'].get('bridge_mappings', {})
