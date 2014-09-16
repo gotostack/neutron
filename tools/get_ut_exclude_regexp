@@ -9,10 +9,6 @@ plugins = ['bigswitch', 'brocade', 'cisco', 'embrane', 'hyperv',
            'nuage', 'ofagent', 'oneconvergence', 'plumgrid', 'ryu', 'vmware']
 tests += plugins
 
-db_tests = map(lambda x: 'db.' + x,
-               ['vpn', 'loadbalancer'])
-tests += db_tests
-
 ml2_mechanism_tests = map(lambda x: 'ml2.' + x,
                           ['test_mechanism_ncs',
                            'test_mechanism_odl',
