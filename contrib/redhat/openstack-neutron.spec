@@ -1,8 +1,8 @@
 %global release_name icehouse
 
 Name:		openstack-neutron
-Version:	2014.1.2
-Release:	2%{?dist}
+Version:	2014.1.3
+Release:	10%{?dist}
 Provides:	openstack-quantum = %{version}-%{release}
 Obsoletes:	openstack-quantum < 2013.2-0.3.b3
 
@@ -1041,6 +1041,9 @@ fi
 
 
 %changelog
+* Thu Oct 16 2014 Jian Wen <wenjian@letv.com> 2014.1.3-10
+- Update to upstream 2014.1.3
+
 * Tue Sep  9 2014 Jian Wen <wenjian@letv.com> 2014.1.2-2
 - Set OVS_HYBRID_PLUG option to reflect SG status.
   Fixes OPENSTACK-138
