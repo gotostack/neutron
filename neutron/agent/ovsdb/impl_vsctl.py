@@ -270,7 +270,7 @@ def _val_to_py(val):
         elif val[0] == "set":
             return [_val_to_py(x) for x in val[1]]
         elif val[0] == "map":
-            return {_val_to_py(x): _val_to_py(y) for x, y in val[1]}
+            return dict([(_val_to_py(x), _val_to_py(y)) for x, y in val[1]])
     return val
 
 

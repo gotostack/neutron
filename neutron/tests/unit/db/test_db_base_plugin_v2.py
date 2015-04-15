@@ -2167,10 +2167,10 @@ fixed_ips=ip_address%%3D%s&fixed_ips=ip_address%%3D%s&fixed_ips=subnet_id%%3D%s
                     self.assertRaises(n_exc.NeutronException,
                                       plugin.delete_ports_by_device_id,
                                       ctx, 'owner1', network_id)
-                statuses = {
+                statuses = [
                     self._show_response('ports', p['port']['id']).status_int
-                    for p in [p1, p2]}
-                expected = {webob.exc.HTTPNotFound.code, webob.exc.HTTPOk.code}
+                    for p in [p1, p2]]
+                expected = [webob.exc.HTTPNotFound.code, webob.exc.HTTPOk.code]
                 self.assertEqual(expected, statuses)
                 self._show('ports', p3['port']['id'],
                            expected_code=webob.exc.HTTPOk.code)

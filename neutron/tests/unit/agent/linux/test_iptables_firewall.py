@@ -1449,7 +1449,7 @@ class IptablesFirewallEnhancedIpsetTestCase(BaseIptablesFirewallTestCase):
         return {sg_id: rules}
 
     def _fake_sg_members(self, sg_ids=None):
-        return {sg_id: copy.copy(FAKE_IP) for sg_id in (sg_ids or [FAKE_SGID])}
+        return dict([(sg_id, copy.copy(FAKE_IP)) for sg_id in (sg_ids or [FAKE_SGID])])
 
     def test_prepare_port_filter_with_new_members(self):
         self.firewall.sg_rules = self._fake_sg_rules()

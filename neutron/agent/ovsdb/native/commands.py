@@ -362,13 +362,13 @@ class DbListCommand(BaseCommand):
             self.records = self.table.rows.keys()
 
     def run_idl(self, txn):
-        self.result = [
-            {
-                c: idlutils.get_column_value(self.table.rows[uuid], c)
-                for c in self.columns
-            }
-            for uuid in self.records
-        ]
+        self.result = [dict([(
+            c,
+            idlutils.get_column_value(
+                self.table.rows[uuid],
+                c)
+            ) for c in self.columns]
+        ) for uuid in self.records]
 
 
 class DbFindCommand(BaseCommand):
@@ -380,11 +380,4 @@ class DbFindCommand(BaseCommand):
                         self.table.columns.keys() + ['_uuid'])
 
     def run_idl(self, txn):
-        self.result = [
-            {
-                c: idlutils.get_column_value(r, c)
-                for c in self.columns
-            }
-            for r in self.table.rows.values()
-            if idlutils.row_match(r, self.conditions)
-        ]
+        self.result = [dict([(c, idlutils.get_column_value(r, c)) for c in self.columns]) for r in self.table.rows.values() if idlutils.row_match(r, self.conditions)]

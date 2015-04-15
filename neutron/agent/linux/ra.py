@@ -83,7 +83,7 @@ class DaemonMonitor(object):
                     netaddr.IPNetwork(subnet['cidr']).version == 6]
             if not v6_subnets:
                 continue
-            ra_modes = {subnet['ipv6_ra_mode'] for subnet in v6_subnets}
+            ra_modes = [subnet['ipv6_ra_mode'] for subnet in v6_subnets]
             auto_config_prefixes = [subnet['cidr'] for subnet in v6_subnets if
                     subnet['ipv6_ra_mode'] == constants.IPV6_SLAAC or
                     subnet['ipv6_ra_mode'] == constants.DHCPV6_STATELESS]

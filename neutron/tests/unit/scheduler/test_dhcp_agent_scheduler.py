@@ -337,27 +337,27 @@ class TestDhcpSchedulerFilter(TestDhcpSchedulerBaseTestCase,
         self.assertEqual(expected, host_ids)
 
     def test_get_dhcp_agents_hosting_networks_default(self):
-        self._test_get_dhcp_agents_hosting_networks({'host-a', 'host-b',
-                                                     'host-c', 'host-d'})
+        self._test_get_dhcp_agents_hosting_networks(['host-a', 'host-b',
+                                                     'host-c', 'host-d'])
 
     def test_get_dhcp_agents_hosting_networks_active(self):
-        self._test_get_dhcp_agents_hosting_networks({'host-b', 'host-d'},
+        self._test_get_dhcp_agents_hosting_networks(['host-b', 'host-d'],
                                                     active=True)
 
     def test_get_dhcp_agents_hosting_networks_admin_up(self):
-        self._test_get_dhcp_agents_hosting_networks({'host-a', 'host-b'},
+        self._test_get_dhcp_agents_hosting_networks(['host-a', 'host-b'],
                                                     admin_state_up=True)
 
     def test_get_dhcp_agents_hosting_networks_active_admin_up(self):
-        self._test_get_dhcp_agents_hosting_networks({'host-b'},
+        self._test_get_dhcp_agents_hosting_networks(['host-b', ],
                                                     active=True,
                                                     admin_state_up=True)
 
     def test_get_dhcp_agents_hosting_networks_admin_down(self):
-        self._test_get_dhcp_agents_hosting_networks({'host-c', 'host-d'},
+        self._test_get_dhcp_agents_hosting_networks(['host-c', 'host-d'],
                                                     admin_state_up=False)
 
     def test_get_dhcp_agents_hosting_networks_active_admin_down(self):
-        self._test_get_dhcp_agents_hosting_networks({'host-d'},
+        self._test_get_dhcp_agents_hosting_networks(['host-d', ],
                                                     active=True,
                                                     admin_state_up=False)

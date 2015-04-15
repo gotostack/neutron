@@ -76,12 +76,12 @@ class TestCli(base.BaseTestCase):
         self.mock_alembic_err.side_effect = SystemExit
 
     def _main_test_helper(self, argv, func_name, exp_args=(), exp_kwargs={}):
-        with mock.patch.object(sys, 'argv', argv), mock.patch.object(
-                cli, 'run_sanity_checks'):
-            cli.main()
-            self.do_alembic_cmd.assert_has_calls(
-                [mock.call(mock.ANY, func_name, *exp_args, **exp_kwargs)]
-            )
+        with mock.patch.object(sys, 'argv', argv):
+            with mock.patch.object(cli, 'run_sanity_checks'):
+                cli.main()
+                self.do_alembic_cmd.assert_has_calls(
+                    [mock.call(mock.ANY, func_name, *exp_args, **exp_kwargs)]
+                )
 
     def test_stamp(self):
         self._main_test_helper(
@@ -153,9 +153,9 @@ class TestCli(base.BaseTestCase):
     def assert_command_fails(self, command):
         # Avoid cluttering stdout with argparse error messages
         mock.patch('argparse.ArgumentParser._print_message').start()
-        with mock.patch.object(sys, 'argv', command), mock.patch.object(
-                cli, 'run_sanity_checks'):
-            self.assertRaises(SystemExit, cli.main)
+        with mock.patch.object(sys, 'argv', command):
+            with mock.patch.object(cli, 'run_sanity_checks'):
+                self.assertRaises(SystemExit, cli.main)
 
     def test_downgrade_fails(self):
         self.assert_command_fails(['prog', 'downgrade', '--sql', 'juno'])

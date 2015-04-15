@@ -396,7 +396,7 @@ class OVSBridge(BaseOVS):
         cmd = self.ovsdb.db_list('Port', port_names, columns=['name', 'tag'],
                                  if_exists=True)
         results = cmd.execute(check_error=True)
-        return {p['name']: p['tag'] for p in results}
+        return dict([(p['name'], p['tag']) for p in results])
 
     def get_vif_port_by_id(self, port_id):
         ports = self.ovsdb.db_find(

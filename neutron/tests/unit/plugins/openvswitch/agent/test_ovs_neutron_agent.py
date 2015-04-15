@@ -1117,10 +1117,10 @@ class TestOvsNeutronAgent(base.BaseTestCase):
         self.agent.treat_vif_port = mock.Mock()
         self.agent.get_vif_port_by_id = mock.Mock(return_value=FakeVif())
         self.agent.plugin_rpc = mock.Mock()
-        plist = [{a: a for a in ('port_id', 'network_id', 'network_type',
-                                 'physical_network', 'segmentation_id',
-                                 'admin_state_up', 'fixed_ips', 'device',
-                                 'device_owner')}]
+        plist = [dict([(a, a) for a in ('port_id', 'network_id', 'network_type',
+                                        'physical_network', 'segmentation_id',
+                                        'admin_state_up', 'fixed_ips', 'device',
+                                        'device_owner')])]
         self.agent.plugin_rpc.get_devices_details_list.return_value = plist
         self.agent.setup_arp_spoofing_protection = mock.Mock()
         self.agent.treat_devices_added_or_updated([], False)

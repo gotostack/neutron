@@ -110,19 +110,19 @@ class GreTypeTest(base_type_tunnel.TunnelTypeTestMixin,
     def test__add_allocation_not_existing(self):
         session = db_api.get_session()
         _add_allocation(session, gre_id=1)
-        self.driver._add_allocation(session, {1, 2})
+        self.driver._add_allocation(session, [1, 2])
         _get_allocation(session, 2)
 
     def test__add_allocation_existing_allocated_is_kept(self):
         session = db_api.get_session()
         _add_allocation(session, gre_id=1, allocated=True)
-        self.driver._add_allocation(session, {2})
+        self.driver._add_allocation(session, [2, ])
         _get_allocation(session, 1)
 
     def test__add_allocation_existing_not_allocated_is_removed(self):
         session = db_api.get_session()
         _add_allocation(session, gre_id=1)
-        self.driver._add_allocation(session, {2})
+        self.driver._add_allocation(session, [2, ])
         with testtools.ExpectedException(sa_exc.NoResultFound):
             _get_allocation(session, 1)
 

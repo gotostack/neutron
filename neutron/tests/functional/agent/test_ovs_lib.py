@@ -102,7 +102,7 @@ class OVSBridgeTestCase(OVSBridgeTestBase):
             self.ovs.get_bridge_external_bridge_id(self.br.br_name))
 
     def test_controller_lifecycle(self):
-        controllers = {'tcp:127.0.0.1:6633', 'tcp:172.17.16.10:55'}
+        controllers = ('tcp:127.0.0.1:6633', 'tcp:172.17.16.10:55')
         self.br.set_controller(controllers)
         self.assertSetEqual(controllers, set(self.br.get_controller()))
         self.br.del_controller()
@@ -166,7 +166,7 @@ class OVSBridgeTestCase(OVSBridgeTestBase):
     def test_get_port_name_list(self):
         # Note that ovs-vsctl's list-ports does not include the port created
         # with the same name as the bridge
-        ports = {self.create_ovs_port()[0] for i in range(5)}
+        ports = [self.create_ovs_port()[0] for i in range(5)]
         self.assertSetEqual(ports, set(self.br.get_port_name_list()))
 
     def test_get_port_stats(self):
@@ -211,8 +211,8 @@ class OVSBridgeTestCase(OVSBridgeTestBase):
         # more like a delete_ports() seems like it should if all_ports=True is
         # passed
         # Create 2 non-vif ports and 2 vif ports
-        nonvifs = {self.create_ovs_port()[0] for i in range(2)}
-        vifs = {self.create_ovs_vif_port().port_name for i in range(2)}
+        nonvifs = [self.create_ovs_port()[0] for i in range(2)]
+        vifs = [self.create_ovs_vif_port().port_name for i in range(2)]
         self.assertSetEqual(nonvifs.union(vifs),
                             set(self.br.get_port_name_list()))
         self.br.delete_ports()
@@ -274,9 +274,9 @@ class OVSLibTestCase(base.BaseOVSLinuxTestCase):
         self.assertFalse(self.ovs.bridge_exists(name))
 
     def test_get_bridges(self):
-        bridges = {
+        bridges = [
             self.useFixture(net_helpers.OVSBridgeFixture()).bridge.br_name
-            for i in range(5)}
+            for i in range(5)]
         self.assertTrue(set(self.ovs.get_bridges()).issuperset(bridges))
 
     def test_bridge_lifecycle_ovsbridge(self):

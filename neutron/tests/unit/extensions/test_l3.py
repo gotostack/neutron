@@ -820,56 +820,57 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
 
     def test_router_update_gateway_add_multiple_prefixes_ipv6(self):
         with self.network() as n:
-            with self.subnet(network=n) as s1, \
-                self.subnet(network=n, ip_version=6, cidr='2001:db8::/32') \
-                as s2, (self.router()) as r:
-                self._set_net_external(n['network']['id'])
-                res1 = self._add_external_gateway_to_router(
-                        r['router']['id'],
-                        n['network']['id'],
-                        ext_ips=[{'subnet_id': s1['subnet']['id']}])
-                fip1 = (res1['router']['external_gateway_info']
-                        ['external_fixed_ips'][0])
-                self.assertEqual(s1['subnet']['id'], fip1['subnet_id'])
-                res2 = self._add_external_gateway_to_router(
-                        r['router']['id'],
-                        n['network']['id'],
-                        ext_ips=[{'ip_address': fip1['ip_address'],
-                                  'subnet_id': s1['subnet']['id']},
-                                 {'subnet_id': s2['subnet']['id']}])
-                self.assertEqual(fip1, res2['router']['external_gateway_info']
-                                           ['external_fixed_ips'][0])
-                fip2 = (res2['router']['external_gateway_info']
-                        ['external_fixed_ips'][1])
-                self.assertEqual(s2['subnet']['id'], fip2['subnet_id'])
-                self.assertNotEqual(fip1['subnet_id'],
-                                    fip2['subnet_id'])
-                self.assertNotEqual(fip1['ip_address'],
-                                    fip2['ip_address'])
+            with self.subnet(network=n) as s1:
+                with self.subnet(network=n, ip_version=6, cidr='2001:db8::/32') as s2:
+                    with self.router() as r:
+                        self._set_net_external(n['network']['id'])
+                        res1 = self._add_external_gateway_to_router(
+                                r['router']['id'],
+                                n['network']['id'],
+                                ext_ips=[{'subnet_id': s1['subnet']['id']}])
+                        fip1 = (res1['router']['external_gateway_info']
+                                ['external_fixed_ips'][0])
+                        self.assertEqual(s1['subnet']['id'], fip1['subnet_id'])
+                        res2 = self._add_external_gateway_to_router(
+                                r['router']['id'],
+                                n['network']['id'],
+                                ext_ips=[{'ip_address': fip1['ip_address'],
+                                          'subnet_id': s1['subnet']['id']},
+                                         {'subnet_id': s2['subnet']['id']}])
+                        self.assertEqual(fip1, res2['router']['external_gateway_info']
+                                                   ['external_fixed_ips'][0])
+                        fip2 = (res2['router']['external_gateway_info']
+                                ['external_fixed_ips'][1])
+                        self.assertEqual(s2['subnet']['id'], fip2['subnet_id'])
+                        self.assertNotEqual(fip1['subnet_id'],
+                                            fip2['subnet_id'])
+                        self.assertNotEqual(fip1['ip_address'],
+                                            fip2['ip_address'])
 
     def test_router_update_gateway_upon_subnet_create_ipv6(self):
         with self.network() as n:
-            with self.subnet(network=n) as s1, self.router() as r:
-                self._set_net_external(n['network']['id'])
-                res1 = self._add_external_gateway_to_router(
-                          r['router']['id'],
-                          n['network']['id'],
-                          ext_ips=[{'subnet_id': s1['subnet']['id']}])
-                fip1 = (res1['router']['external_gateway_info']
-                        ['external_fixed_ips'][0])
-                sres = self._create_subnet(self.fmt, net_id=n['network']['id'],
-                                         ip_version=6, cidr='2001:db8::/32',
-                                         expected_res_status=(
-                                             exc.HTTPCreated.code))
-                s2 = self.deserialize(self.fmt, sres)
-                res2 = self._show('routers', r['router']['id'])
-                self.assertEqual(fip1, res2['router']['external_gateway_info']
-                                           ['external_fixed_ips'][0])
-                fip2 = (res2['router']['external_gateway_info']
-                        ['external_fixed_ips'][1])
-                self.assertEqual(s2['subnet']['id'], fip2['subnet_id'])
-                self.assertNotEqual(fip1['subnet_id'], fip2['subnet_id'])
-                self.assertNotEqual(fip1['ip_address'], fip2['ip_address'])
+            with self.subnet(network=n) as s1:
+                with self.router() as r:
+                    self._set_net_external(n['network']['id'])
+                    res1 = self._add_external_gateway_to_router(
+                              r['router']['id'],
+                              n['network']['id'],
+                              ext_ips=[{'subnet_id': s1['subnet']['id']}])
+                    fip1 = (res1['router']['external_gateway_info']
+                            ['external_fixed_ips'][0])
+                    sres = self._create_subnet(self.fmt, net_id=n['network']['id'],
+                                             ip_version=6, cidr='2001:db8::/32',
+                                             expected_res_status=(
+                                                 exc.HTTPCreated.code))
+                    s2 = self.deserialize(self.fmt, sres)
+                    res2 = self._show('routers', r['router']['id'])
+                    self.assertEqual(fip1, res2['router']['external_gateway_info']
+                                               ['external_fixed_ips'][0])
+                    fip2 = (res2['router']['external_gateway_info']
+                            ['external_fixed_ips'][1])
+                    self.assertEqual(s2['subnet']['id'], fip2['subnet_id'])
+                    self.assertNotEqual(fip1['subnet_id'], fip2['subnet_id'])
+                    self.assertNotEqual(fip1['ip_address'], fip2['ip_address'])
 
     def test_router_update_gateway_upon_subnet_create_max_ips_ipv6(self):
         """Create subnet should not cause excess fixed IPs on router gw
@@ -1011,23 +1012,24 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         Verify that adding multiple ipv4 subnets from the same network
         to a router places them all on different router interfaces.
         """
-        with self.router() as r, self.network() as n:
-            with self.subnet(network=n, cidr='10.0.0.0/24') as s1, (
-                 self.subnet(network=n, cidr='10.0.1.0/24')) as s2:
-                    body = self._router_interface_action('add',
+        with self.router() as r:
+            with self.network() as n:
+                with self.subnet(network=n, cidr='10.0.0.0/24') as s1:
+                    with self.subnet(network=n, cidr='10.0.1.0/24') as s2:
+                        body = self._router_interface_action('add',
                                                          r['router']['id'],
                                                          s1['subnet']['id'],
                                                          None)
-                    pid1 = body['port_id']
-                    body = self._router_interface_action('add',
+                        pid1 = body['port_id']
+                        body = self._router_interface_action('add',
                                                          r['router']['id'],
                                                          s2['subnet']['id'],
                                                          None)
-                    pid2 = body['port_id']
-                    self.assertNotEqual(pid1, pid2)
-                    self._router_interface_action('remove', r['router']['id'],
+                        pid2 = body['port_id']
+                        self.assertNotEqual(pid1, pid2)
+                        self._router_interface_action('remove', r['router']['id'],
                                                   s1['subnet']['id'], None)
-                    self._router_interface_action('remove', r['router']['id'],
+                        self._router_interface_action('remove', r['router']['id'],
                                                   s2['subnet']['id'], None)
 
     def test_router_add_interface_multiple_ipv6_subnets_same_net(self):
@@ -1036,30 +1038,32 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         Verify that adding multiple ipv6 subnets from the same network
         to a router places them all on the same router interface.
         """
-        with self.router() as r, self.network() as n:
-            with (self.subnet(network=n, cidr='fd00::1/64', ip_version=6)
-                  ) as s1, self.subnet(network=n, cidr='fd01::1/64',
-                                       ip_version=6) as s2:
-                    body = self._router_interface_action('add',
+        with self.router() as r:
+            with self.network() as n:
+                with (self.subnet(network=n, cidr='fd00::1/64', ip_version=6)
+                    ) as s1:
+                    with self.subnet(network=n, cidr='fd01::1/64',
+                                     ip_version=6) as s2:
+                        body = self._router_interface_action('add',
                                                          r['router']['id'],
                                                          s1['subnet']['id'],
                                                          None)
-                    pid1 = body['port_id']
-                    body = self._router_interface_action('add',
+                        pid1 = body['port_id']
+                        body = self._router_interface_action('add',
                                                          r['router']['id'],
                                                          s2['subnet']['id'],
                                                          None)
-                    pid2 = body['port_id']
-                    self.assertEqual(pid1, pid2)
-                    port = self._show('ports', pid1)
-                    self.assertEqual(2, len(port['port']['fixed_ips']))
-                    port_subnet_ids = [fip['subnet_id'] for fip in
+                        pid2 = body['port_id']
+                        self.assertEqual(pid1, pid2)
+                        port = self._show('ports', pid1)
+                        self.assertEqual(2, len(port['port']['fixed_ips']))
+                        port_subnet_ids = [fip['subnet_id'] for fip in
                                        port['port']['fixed_ips']]
-                    self.assertIn(s1['subnet']['id'], port_subnet_ids)
-                    self.assertIn(s2['subnet']['id'], port_subnet_ids)
-                    self._router_interface_action('remove', r['router']['id'],
+                        self.assertIn(s1['subnet']['id'], port_subnet_ids)
+                        self.assertIn(s2['subnet']['id'], port_subnet_ids)
+                        self._router_interface_action('remove', r['router']['id'],
                                                   s1['subnet']['id'], None)
-                    self._router_interface_action('remove', r['router']['id'],
+                        self._router_interface_action('remove', r['router']['id'],
                                                   s2['subnet']['id'], None)
 
     def test_router_add_interface_multiple_ipv6_subnets_different_net(self):
@@ -1068,24 +1072,27 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         Verify that adding multiple ipv6 subnets from different networks
         to a router places them on different router interfaces.
         """
-        with self.router() as r, self.network() as n1, self.network() as n2:
-            with (self.subnet(network=n1, cidr='fd00::1/64', ip_version=6)
-                  ) as s1, self.subnet(network=n2, cidr='fd01::1/64',
+        with self.router() as r:
+            with self.network() as n1:
+                with self.network() as n2:
+                    with (self.subnet(network=n1, cidr='fd00::1/64', ip_version=6)
+                          ) as s1:
+                        with self.subnet(network=n2, cidr='fd01::1/64',
                                        ip_version=6) as s2:
-                    body = self._router_interface_action('add',
+                            body = self._router_interface_action('add',
                                                          r['router']['id'],
                                                          s1['subnet']['id'],
                                                          None)
-                    pid1 = body['port_id']
-                    body = self._router_interface_action('add',
+                            pid1 = body['port_id']
+                            body = self._router_interface_action('add',
                                                          r['router']['id'],
                                                          s2['subnet']['id'],
                                                          None)
-                    pid2 = body['port_id']
-                    self.assertNotEqual(pid1, pid2)
-                    self._router_interface_action('remove', r['router']['id'],
+                            pid2 = body['port_id']
+                            self.assertNotEqual(pid1, pid2)
+                            self._router_interface_action('remove', r['router']['id'],
                                                   s1['subnet']['id'], None)
-                    self._router_interface_action('remove', r['router']['id'],
+                            self._router_interface_action('remove', r['router']['id'],
                                                   s2['subnet']['id'], None)
 
     def test_router_add_iface_ipv6_ext_ra_subnet_returns_400(self):
@@ -1210,14 +1217,15 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         Multiple IPv4 subnets are not allowed on a single router port.
         Ensure that adding a port with multiple IPv4 subnets to a router fails.
         """
-        with self.network() as n, self.router() as r:
-            with self.subnet(network=n, cidr='10.0.0.0/24') as s1, (
-                 self.subnet(network=n, cidr='10.0.1.0/24')) as s2:
-                fixed_ips = [{'subnet_id': s1['subnet']['id']},
+        with self.network() as n:
+            with self.router() as r:
+                with self.subnet(network=n, cidr='10.0.0.0/24') as s1:
+                    with self.subnet(network=n, cidr='10.0.1.0/24') as s2:
+                        fixed_ips = [{'subnet_id': s1['subnet']['id']},
                              {'subnet_id': s2['subnet']['id']}]
-                with self.port(subnet=s1, fixed_ips=fixed_ips) as p:
-                    exp_code = exc.HTTPBadRequest.code
-                    self._router_interface_action('add',
+                        with self.port(subnet=s1, fixed_ips=fixed_ips) as p:
+                            exp_code = exc.HTTPBadRequest.code
+                            self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
                                                   p['port']['id'],
@@ -1231,23 +1239,24 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         there is no ambiguity regarding on which port to add an IPv6 subnet
         when executing router-interface-add with a subnet and no port.
         """
-        with self.network() as n, self.router() as r:
-            with self.subnet(network=n, cidr='fd00::/64',
-                             ip_version=6) as s1, (
-                 self.subnet(network=n, cidr='fd01::/64',
-                             ip_version=6)) as s2:
-                with self.port(subnet=s1) as p:
-                    self._router_interface_action('add',
+        with self.network() as n:
+            with self.router() as r:
+                with self.subnet(network=n, cidr='fd00::/64',
+                             ip_version=6) as s1:
+                    with self.subnet(network=n, cidr='fd01::/64',
+                             ip_version=6) as s2:
+                        with self.port(subnet=s1) as p:
+                            self._router_interface_action('add',
                                                   r['router']['id'],
                                                   s2['subnet']['id'],
                                                   None)
-                    exp_code = exc.HTTPBadRequest.code
-                    self._router_interface_action('add',
+                            exp_code = exc.HTTPBadRequest.code
+                            self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
                                                   p['port']['id'],
                                                   expected_code=exp_code)
-                    self._router_interface_action('remove',
+                            self._router_interface_action('remove',
                                                   r['router']['id'],
                                                   s2['subnet']['id'],
                                                   None)
@@ -1258,19 +1267,20 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         Create a port with multiple associated IPv6 subnets and attach
         it to a router. The action should succeed.
         """
-        with self.network() as n, self.router() as r:
-            with self.subnet(network=n, cidr='fd00::/64',
-                             ip_version=6) as s1, (
-                 self.subnet(network=n, cidr='fd01::/64',
-                             ip_version=6)) as s2:
-                fixed_ips = [{'subnet_id': s1['subnet']['id']},
+        with self.network() as n:
+            with self.router() as r:
+                with self.subnet(network=n, cidr='fd00::/64',
+                             ip_version=6) as s1:
+                    with self.subnet(network=n, cidr='fd01::/64',
+                             ip_version=6) as s2:
+                        fixed_ips = [{'subnet_id': s1['subnet']['id']},
                              {'subnet_id': s2['subnet']['id']}]
-                with self.port(subnet=s1, fixed_ips=fixed_ips) as p:
-                    self._router_interface_action('add',
+                        with self.port(subnet=s1, fixed_ips=fixed_ips) as p:
+                            self._router_interface_action('add',
                                                   r['router']['id'],
                                                   None,
                                                   p['port']['id'])
-                    self._router_interface_action('remove',
+                            self._router_interface_action('remove',
                                                   r['router']['id'],
                                                   None,
                                                   p['port']['id'])
@@ -1721,25 +1731,26 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
         that subnet when there are multiple subnets on the interface and
         removes the interface when it is the last subnet on the interface.
         """
-        with self.router() as r, self.network() as n:
-            with (self.subnet(network=n, cidr='fd00::1/64', ip_version=6)
-                  ) as s1, self.subnet(network=n, cidr='fd01::1/64',
-                                       ip_version=6) as s2:
-                body = self._router_interface_action('add', r['router']['id'],
+        with self.router() as r:
+            with self.network() as n:
+                with self.subnet(network=n, cidr='fd00::1/64', ip_version=6) as s1:
+                    with self.subnet(network=n, cidr='fd01::1/64',
+                                     ip_version=6) as s2:
+                        body = self._router_interface_action('add', r['router']['id'],
                                                      s1['subnet']['id'],
                                                      None)
-                self._router_interface_action('add', r['router']['id'],
+                        self._router_interface_action('add', r['router']['id'],
                                               s2['subnet']['id'], None)
-                port = self._show('ports', body['port_id'])
-                self.assertEqual(2, len(port['port']['fixed_ips']))
-                self._router_interface_action('remove', r['router']['id'],
+                        port = self._show('ports', body['port_id'])
+                        self.assertEqual(2, len(port['port']['fixed_ips']))
+                        self._router_interface_action('remove', r['router']['id'],
                                               s1['subnet']['id'], None)
-                port = self._show('ports', body['port_id'])
-                self.assertEqual(1, len(port['port']['fixed_ips']))
-                self._router_interface_action('remove', r['router']['id'],
+                        port = self._show('ports', body['port_id'])
+                        self.assertEqual(1, len(port['port']['fixed_ips']))
+                        self._router_interface_action('remove', r['router']['id'],
                                               s2['subnet']['id'], None)
-                exp_code = exc.HTTPNotFound.code
-                port = self._show('ports', body['port_id'],
+                        exp_code = exc.HTTPNotFound.code
+                        port = self._show('ports', body['port_id'],
                                   expected_code=exp_code)
 
     def test_router_delete(self):

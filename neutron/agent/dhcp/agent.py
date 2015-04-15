@@ -325,8 +325,8 @@ class DhcpAgent(manager.Manager):
             if self._is_port_on_this_agent(updated_port):
                 orig = self.cache.get_port_by_id(updated_port['id'])
                 # assume IP change if not in cache
-                old_ips = {i['ip_address'] for i in orig['fixed_ips'] or []}
-                new_ips = {i['ip_address'] for i in updated_port['fixed_ips']}
+                old_ips = [i['ip_address'] for i in orig['fixed_ips'] or []]
+                new_ips = [i['ip_address'] for i in updated_port['fixed_ips']]
                 if old_ips != new_ips:
                     driver_action = 'restart'
             self.cache.put_port(updated_port)

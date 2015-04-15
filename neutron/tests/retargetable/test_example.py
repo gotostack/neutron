@@ -25,7 +25,8 @@ class TestExample(base.RetargetableApiTest):
 
     def test_network_lifecycle(self):
         net = self.client.create_network(name=tests_base.get_rand_name())
-        listed_networks = {x.id: x.name for x in self.client.get_networks()}
+        listed_networks = dict([(x.id,
+                                 x.name) for x in self.client.get_networks()])
         self.assertIn(net.id, listed_networks)
         self.assertEqual(listed_networks[net.id], net.name,
                          'Listed network name is not as expected.')

@@ -324,7 +324,7 @@ class RouterInfo(object):
     @staticmethod
     def _get_updated_ports(existing_ports, current_ports):
         updated_ports = dict()
-        current_ports_dict = {p['id']: p for p in current_ports}
+        current_ports_dict = dict([(p['id'], p) for p in current_ports])
         for existing_port in existing_ports:
             current_port = current_ports_dict.get(existing_port['id'])
             if current_port:
