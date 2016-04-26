@@ -112,7 +112,8 @@ def prepare_router_data(ip_version=4, enable_snat=None, num_internal_ports=1,
             'port_id': _uuid(),
             'status': 'DOWN',
             'floating_ip_address': '19.4.4.2',
-            'fixed_ip_address': '10.0.0.1'}]
+            'fixed_ip_address': '10.0.0.1',
+            'rate_limit': 1}]
 
     router_append_interface(router, count=num_internal_ports,
                             ip_version=ip_version, dual_stack=dual_stack)

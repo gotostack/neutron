@@ -37,6 +37,91 @@ TC_FILTERS_OUTPUT = (
 ) % {'bw': BW_LIMIT, 'burst': BURST}
 
 
+FLOATING_IP_DEVICE_NAME = "qg-device_rfp-device"
+FLOATING_IP_ROUTER_NAMESPACE = "qrouter-namespace_snat-namespace"
+
+FLOATING_IP_1 = "172.16.5.146"
+FLOATING_IP_2 = "172.16.10.105"
+FILETER_ID_1 = "800::800"
+FILETER_ID_2 = "800::801"
+
+TC_INGRESS_FILTERS = (
+    'filter protocol ip u32 \n'
+    'filter protocol ip u32 fh 800: ht divisor 1 \n'
+    'filter protocol ip u32 fh %(filter_id1)s order 2048 key '
+    'ht 800 bkt 0 '
+    'flowid :1  (rule hit 0 success 0)\n'
+    '  match IP dst %(fip1)s/32 (success 0 ) \n'
+    ' police 0x3 rate 3000Kbit burst 3Mb mtu 64Kb action drop overhead 0b \n'
+    'ref 1 bind 1\n'
+    '\n'
+    ' Sent 111 bytes 222 pkts (dropped 0, overlimits 0) \n'
+    'filter protocol ip u32 fh %(filter_id2)s order 2049 key '
+    'ht 800 bkt 0 '
+    'flowid :1  (rule hit 0 success 0)\n'
+    '  match IP dst %(fip2)s/32 (success 0 ) \n'
+    ' police 0x1b rate 22000Kbit burst 22Mb mtu 64Kb action drop '
+    'overhead 0b \n'
+    'ref 1 bind 1\n'
+    '\n'
+    ' Sent 111 bytes 222 pkts (dropped 0, overlimits 0)\n') % {
+        "filter_id1": FILETER_ID_1,
+        "fip1": FLOATING_IP_1,
+        "filter_id2": FILETER_ID_2,
+        "fip2": FLOATING_IP_2}
+
+TC_INGRESS_FILTERS_DUP = TC_INGRESS_FILTERS + (
+    'filter protocol ip u32 fh %(filter_id2)s order 2049 key '
+    'ht 800 bkt 0 '
+    'flowid :1  (rule hit 0 success 0)\n'
+    '  match IP dst %(fip2)s/32 (success 0 ) \n'
+    ' police 0x1b rate 22000Kbit burst 22Mb mtu 64Kb action drop '
+    'overhead 0b \n'
+    'ref 1 bind 1\n'
+    '\n'
+    ' Sent 111 bytes 222 pkts (dropped 0, overlimits 0)\n') % {
+        "filter_id2": FILETER_ID_2,
+        "fip2": FLOATING_IP_2}
+
+TC_EGRESS_FILTERS = (
+    'filter protocol ip u32 \n'
+    'filter protocol ip u32 fh 800: ht divisor 1 \n'
+    'filter protocol ip u32 fh %(filter_id1)s order 2048 key '
+    'ht 800 bkt 0 '
+    'flowid :1  (rule hit 0 success 0)\n'
+    '  match IP src %(fip1)s/32 (success 0 ) \n'
+    ' police 0x4 rate 3000Kbit burst 3Mb mtu 64Kb action drop overhead 0b \n'
+    'ref 1 bind 1\n'
+    '\n'
+    ' Sent 111 bytes 222 pkts (dropped 0, overlimits 0) \n'
+    'filter protocol ip u32 fh %(filter_id2)s order 2049 key '
+    'ht 800 bkt 0 '
+    'flowid :1  (rule hit 0 success 0)\n'
+    '  match IP src %(fip2)s/32 (success 0 ) \n'
+    ' police 0x1c rate 22000Kbit burst 22Mb mtu 64Kb action drop '
+    'overhead 0b \n'
+    'ref 1 bind 1\n'
+    '\n'
+    ' Sent 111 bytes 222 pkts (dropped 0, overlimits 0)\n') % {
+        "filter_id1": FILETER_ID_1,
+        "fip1": FLOATING_IP_1,
+        "filter_id2": FILETER_ID_2,
+        "fip2": FLOATING_IP_2}
+FILTERS_IDS = {tc_lib.TC_DIRECTION_INGRESS: TC_INGRESS_FILTERS,
+               tc_lib.TC_DIRECTION_EGRESS: TC_EGRESS_FILTERS}
+
+INGRESS_QSIC_ID = "ffff:"
+EGRESS_QDISC_ID = "8002:"
+QDISC_IDS = {tc_lib.TC_DIRECTION_INGRESS: INGRESS_QSIC_ID,
+             tc_lib.TC_DIRECTION_EGRESS: EGRESS_QDISC_ID}
+TC_QDISCS = (
+    'qdisc htb %(egress)s root refcnt 2 r2q 10 default 0 '
+    'direct_packets_stat 6\n'
+    'qdisc ingress %(ingress)s parent ffff:fff1 ----------------\n') % {
+        "egress": "8002:",
+        "ingress": "ffff:"}
+
+
 class BaseUnitConversionTest(object):
 
     def test_convert_to_kilobits_bare_value(self):
@@ -301,3 +386,259 @@ class TestTcCommand(base.BaseTestCase):
     def test__get_tbf_burst_value_when_burst_smaller_then_minimal(self):
         result = self.tc._get_tbf_burst_value(BW_LIMIT, 0)
         self.assertEqual(2, result)
+
+
+class TestFloatingIPTcCommandBase(base.BaseTestCase):
+    def setUp(self):
+        super(TestFloatingIPTcCommandBase, self).setUp()
+        self.tc = tc_lib.FloatingIPTcCommandBase(
+            FLOATING_IP_DEVICE_NAME,
+            namespace=FLOATING_IP_ROUTER_NAMESPACE)
+        self.execute = mock.patch('neutron.agent.common.utils.execute').start()
+
+    def test__get_qdiscs(self):
+        self.tc._get_qdiscs()
+        self.execute.assert_called_once_with(
+            ['ip', 'netns', 'exec', FLOATING_IP_ROUTER_NAMESPACE,
+             'tc', 'qdisc', 'show', 'dev', FLOATING_IP_DEVICE_NAME],
+            run_as_root=True,
+            check_exit_code=True,
+            log_fail_as_error=True,
+            extra_ok_codes=None
+        )
+
+    def test__get_qdisc_id_for_filter(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_qdiscs') as get_qdiscs:
+            get_qdiscs.return_value = TC_QDISCS
+            q1 = self.tc._get_qdisc_id_for_filter(tc_lib.TC_DIRECTION_INGRESS)
+            self.assertEqual(q1, INGRESS_QSIC_ID)
+            q2 = self.tc._get_qdisc_id_for_filter(tc_lib.TC_DIRECTION_EGRESS)
+            self.assertEqual(q2, EGRESS_QDISC_ID)
+
+    def test__add_qdisc(self):
+        self.tc._add_qdisc(tc_lib.TC_DIRECTION_INGRESS)
+        self.execute.assert_called_with(
+            ['ip', 'netns', 'exec', FLOATING_IP_ROUTER_NAMESPACE,
+             'tc', 'qdisc', 'add', 'dev', FLOATING_IP_DEVICE_NAME, 'ingress'],
+            run_as_root=True,
+            check_exit_code=True,
+            log_fail_as_error=True,
+            extra_ok_codes=None
+        )
+        self.tc._add_qdisc(tc_lib.TC_DIRECTION_EGRESS)
+        self.execute.assert_called_with(
+            ['ip', 'netns', 'exec', FLOATING_IP_ROUTER_NAMESPACE,
+             'tc', 'qdisc', 'add', 'dev', FLOATING_IP_DEVICE_NAME] + ['root',
+                                                                      'htb'],
+            run_as_root=True,
+            check_exit_code=True,
+            log_fail_as_error=True,
+            extra_ok_codes=None
+        )
+
+    def test__get_filters(self):
+        self.tc._get_filters(INGRESS_QSIC_ID)
+        self.execute.assert_called_with(
+            ['ip', 'netns', 'exec', FLOATING_IP_ROUTER_NAMESPACE,
+             'tc', '-p', '-s', '-d', 'filter', 'show', 'dev',
+             FLOATING_IP_DEVICE_NAME,
+             'parent', INGRESS_QSIC_ID, 'prio', 1],
+            run_as_root=True,
+            check_exit_code=True,
+            log_fail_as_error=True,
+            extra_ok_codes=None
+        )
+
+    def test__get_filterid_for_ip(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_filters') as get_filters:
+            get_filters.return_value = TC_EGRESS_FILTERS
+            f_id = self.tc._get_filterid_for_ip(INGRESS_QSIC_ID, FLOATING_IP_1)
+            self.assertEqual(f_id, FILETER_ID_1)
+
+    def test__get_filterid_for_ip_duplicated(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_filters') as get_filters:
+            get_filters.return_value = TC_INGRESS_FILTERS_DUP
+            self.assertRaises(tc_lib.MultipleFilterIDForIPFound,
+                              self.tc._get_filterid_for_ip,
+                              INGRESS_QSIC_ID, FLOATING_IP_2)
+
+    def test__get_filterid_for_ip_not_found(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_filters') as get_filters:
+            get_filters.return_value = TC_EGRESS_FILTERS
+            self.assertRaises(tc_lib.FilterIDForIPNotFound,
+                              self.tc._get_filterid_for_ip,
+                              INGRESS_QSIC_ID, "1.1.1.1")
+
+    def test__del_filter_by_id(self):
+        self.tc._del_filter_by_id(INGRESS_QSIC_ID, FLOATING_IP_1)
+        self.execute.assert_called_once_with(
+            ['ip', 'netns', 'exec', FLOATING_IP_ROUTER_NAMESPACE,
+             'tc', 'filter', 'del', 'dev', FLOATING_IP_DEVICE_NAME,
+             'parent', INGRESS_QSIC_ID,
+             'prio', 1, 'handle', FLOATING_IP_1, 'u32'],
+            run_as_root=True,
+            check_exit_code=True,
+            log_fail_as_error=True,
+            extra_ok_codes=None
+        )
+
+    def test__get_qdisc_filters(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_filters') as get_filters:
+            get_filters.return_value = TC_EGRESS_FILTERS
+            f_ids = self.tc._get_qdisc_filters(INGRESS_QSIC_ID)
+            self.assertEqual(f_ids, [FILETER_ID_1, FILETER_ID_2])
+
+    def test__get_filter_statictics_line(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_filters') as get_filters:
+            get_filters.return_value = TC_EGRESS_FILTERS
+            ret = self.tc._get_filter_statictics_line(INGRESS_QSIC_ID,
+                                                      FLOATING_IP_1)
+            line = "Sent 111 bytes 222 pkts (dropped 0, overlimits 0)"
+            self.assertEqual(line, ret)
+
+    def test__add_filter(self):
+        protocol = ['protocol', 'ip']
+        prio = ['prio', 1]
+        match = ['u32', 'match', 'ip', 'dst', FLOATING_IP_1]
+        police = ['police', 'rate', '1Mbit', 'burst', '1Mb',
+                  'mtu', '64kb', 'drop', 'flowid', ':1']
+        args = protocol + prio + match + police
+        cmd = ['tc', 'filter', 'add', 'dev', FLOATING_IP_DEVICE_NAME,
+               'parent', INGRESS_QSIC_ID] + args
+
+        self.tc._add_filter(INGRESS_QSIC_ID,
+                            tc_lib.TC_DIRECTION_INGRESS,
+                            FLOATING_IP_1, 1)
+        self.execute.assert_called_once_with(
+            ['ip', 'netns', 'exec', FLOATING_IP_ROUTER_NAMESPACE] + cmd,
+            run_as_root=True,
+            check_exit_code=True,
+            log_fail_as_error=True,
+            extra_ok_codes=None
+        )
+
+    def test__get_or_create_qdisc(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_qdisc_id_for_filter') as get_disc1:
+            get_disc1.return_value = None
+            with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                   '_add_qdisc'):
+                with mock.patch.object(
+                        tc_lib.FloatingIPTcCommandBase,
+                        '_get_qdisc_id_for_filter') as get_disc2:
+                    get_disc2.return_value = INGRESS_QSIC_ID
+                    qdisc_id = self.tc._get_or_create_qdisc(
+                        tc_lib.TC_DIRECTION_INGRESS)
+                    self.assertEqual(INGRESS_QSIC_ID, qdisc_id)
+
+    def test__get_or_create_qdisc_failed(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_qdisc_id_for_filter') as get_disc1:
+            get_disc1.return_value = None
+            with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                   '_add_qdisc'):
+                with mock.patch.object(
+                        tc_lib.FloatingIPTcCommandBase,
+                        '_get_qdisc_id_for_filter') as get_disc2:
+                    get_disc2.return_value = None
+                    self.assertRaises(tc_lib.FailedToAddQdiscToDevice,
+                                      self.tc._get_or_create_qdisc,
+                                      tc_lib.TC_DIRECTION_INGRESS)
+
+
+class TestFloatingIPTcCommand(base.BaseTestCase):
+    def setUp(self):
+        super(TestFloatingIPTcCommand, self).setUp()
+        self.tc = tc_lib.FloatingIPTcCommand(
+            FLOATING_IP_DEVICE_NAME,
+            namespace=FLOATING_IP_ROUTER_NAMESPACE)
+        self.execute = mock.patch('neutron.agent.common.utils.execute').start()
+
+    def _test_get_traffic_counters(self, direction, fip):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_qdisc_id_for_filter') as get_disc:
+            get_disc.return_value = QDISC_IDS.get(direction)
+
+            self.execute.return_value = FILTERS_IDS.get(direction)
+            acc = self.tc.get_traffic_counters(direction,
+                                               fip)
+            ret = {'bytes': 111,
+                   'pkts': 222}
+            self.assertEqual(ret, acc)
+
+    def test_get_traffic_counters_ingress(self):
+        self._test_get_traffic_counters(tc_lib.TC_DIRECTION_INGRESS,
+                                        FLOATING_IP_1)
+
+    def test_get_traffic_counters_egress(self):
+        self._test_get_traffic_counters(tc_lib.TC_DIRECTION_EGRESS,
+                                        FLOATING_IP_1)
+
+    def test_clear_all_filters(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_qdisc_id_for_filter') as get_disc:
+            get_disc.return_value = EGRESS_QDISC_ID
+            with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                   '_get_filters') as get_filters:
+                get_filters.return_value = TC_EGRESS_FILTERS
+                self.tc.clear_all_filters(tc_lib.TC_DIRECTION_EGRESS)
+                self.assertEqual(2, self.execute.call_count)
+
+    def test_set_ip_rate_limit_no_qdisc(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_qdisc_id_for_filter') as get_disc:
+            get_disc.return_value = None
+            with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                   '_add_qdisc'):
+                with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                       '_get_filters') as get_filters:
+                    get_filters.return_value = TC_INGRESS_FILTERS
+                    get_disc.return_value = INGRESS_QSIC_ID
+                    ip = "111.111.111.111"
+                    self.tc.set_ip_rate_limit(tc_lib.TC_DIRECTION_INGRESS,
+                                              ip, 1)
+
+                    protocol = ['protocol', 'ip']
+                    prio = ['prio', 1]
+                    _match = 'dst'
+                    match = ['u32', 'match', 'ip', _match, ip]
+                    police = ['police', 'rate', "1Mbit", 'burst', "1Mb",
+                              'mtu', '64kb', 'drop', 'flowid', ':1']
+                    args = protocol + prio + match + police
+
+                    self.execute.assert_called_once_with(
+                        ['ip', 'netns', 'exec', FLOATING_IP_ROUTER_NAMESPACE,
+                         'tc', 'filter', 'add', 'dev', FLOATING_IP_DEVICE_NAME,
+                         'parent', INGRESS_QSIC_ID] + args,
+                        run_as_root=True,
+                        check_exit_code=True,
+                        log_fail_as_error=True,
+                        extra_ok_codes=None
+                    )
+
+    def test_clear_ip_rate_limit(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_qdisc_id_for_filter') as get_disc:
+            get_disc.return_value = EGRESS_QDISC_ID
+            with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                   '_get_filterid_for_ip') as get_filter_id:
+                get_filter_id.return_value = FILETER_ID_1
+                self.tc.clear_ip_rate_limit(tc_lib.TC_DIRECTION_EGRESS,
+                                            FLOATING_IP_1)
+
+                self.execute.assert_called_once_with(
+                    ['ip', 'netns', 'exec', FLOATING_IP_ROUTER_NAMESPACE,
+                     'tc', 'filter', 'del', 'dev', FLOATING_IP_DEVICE_NAME,
+                     'parent', EGRESS_QDISC_ID,
+                     'prio', 1, 'handle', FILETER_ID_1, 'u32'],
+                    run_as_root=True,
+                    check_exit_code=True,
+                    log_fail_as_error=True,
+                    extra_ok_codes=None
+                )

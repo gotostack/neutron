@@ -21,6 +21,7 @@ from neutron.agent.l3 import namespaces
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import iptables_manager
 from neutron.agent.linux import ra
+from neutron.agent.linux import tc_lib
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
 from neutron.common import ipv6_utils
@@ -70,6 +71,9 @@ class RouterInfo(object):
         self.driver = interface_driver
         # radvd is a neutron.agent.linux.ra.DaemonMonitor
         self.radvd = None
+
+        self.ingress_ratelimits = {}
+        self.egress_ratelimits = {}
 
     def initialize(self, process_monitor):
         """Initialize the router on the system.
@@ -272,14 +276,66 @@ class RouterInfo(object):
     def add_floating_ip(self, fip, interface_name, device):
         raise NotImplementedError()
 
+    def remove_fip_rate_limit(self, device, ip_cidr):
+        fip_ip = ip_cidr[:ip_cidr.index('/')]
+        self._remove_fip_rate_limit(device, fip_ip)
+
+    def _remove_ip_ratelimit_cache(self, ip, direction):
+        # remove cache
+        ratelimits = direction + "_ratelimits"
+        old_rate_limits = getattr(self, ratelimits, {})
+        old_rate_limits.pop(ip, None)
+
+    def _remove_fip_rate_limit(self, device, fip_ip):
+        tc_wrapper = self._get_tc_wrapper(device)
+        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+            if device.exists():
+                tc_wrapper.clear_ip_rate_limit(direction, fip_ip)
+
+            self._remove_ip_ratelimit_cache(fip_ip, direction)
+
     def remove_floating_ip(self, device, ip_cidr):
         device.delete_addr_and_conntrack_state(ip_cidr)
+
+        self.remove_fip_rate_limit(device, ip_cidr)
 
     def remove_external_gateway_ip(self, device, ip_cidr):
         device.delete_addr_and_conntrack_state(ip_cidr)
 
     def get_router_cidrs(self, device):
         return set([addr['cidr'] for addr in device.addr.list()])
+
+    def _get_tc_wrapper(self, device):
+        return tc_lib.FloatingIPTcCommand(device.name,
+                                          namespace=device.namespace)
+
+    def process_ip_rate_limit(self, ip, rate, direction, device):
+        ratelimits = direction + "_ratelimits"
+        old_rate_limits = getattr(self, ratelimits, {})
+        old_rate = old_rate_limits.get(ip)
+
+        if (old_rate and old_rate == rate) or (not old_rate and rate == 0):
+            # 1. Floating IP rate limit does not change.
+            # 2. New added floating IP bandwidth does not limit.
+            return
+
+        tc_wrapper = self._get_tc_wrapper(device)
+
+        if rate == 0 and old_rate > 0:
+            # Floating IP bandwidth does not limit.
+            tc_wrapper.clear_ip_rate_limit(direction, ip)
+            old_rate_limits.pop(ip, None)
+            return
+
+        # Finally, add or update floating IP rate limit
+        if old_rate > 0 and rate > 0 and old_rate != rate:
+            tc_wrapper.clear_ip_rate_limit(direction, ip)
+        tc_wrapper.set_ip_rate_limit(direction, ip, rate)
+        old_rate_limits[ip] = rate
+
+    def _get_rate_limit_ip_device(self, name=None):
+        if name:
+            return ip_lib.IPDevice(name, namespace=self.ns_name)
 
     def process_floating_ip_addresses(self, interface_name):
         """Configure IP addresses on router's external gateway interface.
@@ -294,7 +350,7 @@ class RouterInfo(object):
                       self.router['id'])
             return fip_statuses
 
-        device = ip_lib.IPDevice(interface_name, namespace=self.ns_name)
+        device = self._get_rate_limit_ip_device(interface_name)
         existing_cidrs = self.get_router_cidrs(device)
         new_cidrs = set()
 
@@ -315,6 +371,14 @@ class RouterInfo(object):
                 # mark the status as not changed. we can't remove it because
                 # that's how the caller determines that it was removed
                 fip_statuses[fip['id']] = FLOATINGIP_STATUS_NOCHANGE
+
+            # process floating IP rate limit
+            rate = fip['rate_limit']
+            for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+                if device.exists():
+                    self.process_ip_rate_limit(
+                        fip_ip, rate, direction, device)
+
         fips_to_remove = (
             ip_cidr for ip_cidr in existing_cidrs - new_cidrs
             if common_utils.is_cidr_host(ip_cidr))

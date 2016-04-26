@@ -15,10 +15,13 @@
 
 import re
 
-from neutron._i18n import _
+from oslo_log import log as logging
+
+from neutron._i18n import _, _LW
 from neutron.agent.linux import ip_lib
 from neutron.common import exceptions
 
+LOG = logging.getLogger(__name__)
 
 INGRESS_QDISC_ID = "ffff:"
 MAX_MTU_VALUE = 65535
@@ -41,6 +44,9 @@ UNITS = {
 filters_pattern = re.compile(r"police \w+ rate (\w+) burst (\w+)")
 tbf_pattern = re.compile(
     r"qdisc (\w+) \w+: \w+ refcnt \d rate (\w+) burst (\w+) \w*")
+TC_DIRECTION_INGRESS = "ingress"
+TC_DIRECTION_EGRESS = "egress"
+RATE_LIMIT_DIRECTIONS = [TC_DIRECTION_INGRESS, TC_DIRECTION_EGRESS]
 
 
 class InvalidKernelHzValue(exceptions.NeutronException):
@@ -50,6 +56,19 @@ class InvalidKernelHzValue(exceptions.NeutronException):
 
 class InvalidUnit(exceptions.NeutronException):
     message = _("Unit name '%(unit)s' is not valid.")
+
+
+class MultipleFilterIDForIPFound(exceptions.Conflict):
+    message = _("Multiple filter IDs for IP %(ip)s found.")
+
+
+class FilterIDForIPNotFound(exceptions.NotFound):
+    message = _("Filter ID for IP %(ip)s could not be found.")
+
+
+class FailedToAddQdiscToDevice(exceptions.NeutronException):
+    message = _("Failed to add %(direction)s qdisc "
+                "to device %(device)s.")
 
 
 def convert_to_kilobits(value, base):
@@ -232,3 +251,178 @@ class TcCommand(ip_lib.IPDevice):
             'mtu', MAX_MTU_VALUE,
             'drop']
         return self._execute_tc_cmd(cmd)
+
+
+class FloatingIPTcCommandBase(ip_lib.IPDevice):
+
+    def _execute_tc_cmd(self, cmd, **kwargs):
+        cmd = ['tc'] + cmd
+        ip_wrapper = ip_lib.IPWrapper(self.namespace)
+        return ip_wrapper.netns.execute(cmd, run_as_root=True, **kwargs)
+
+    def _get_qdiscs(self):
+        cmd = ['qdisc', 'show', 'dev', self.name]
+        return self._execute_tc_cmd(cmd)
+
+    def _get_qdisc_id_for_filter(self, direction):
+        qdisc_results = self._get_qdiscs().split('\n')
+        for qdisc in qdisc_results:
+            if direction == TC_DIRECTION_EGRESS:
+                pattern = re.compile(r"qdisc htb (\w+:) *")
+            else:
+                pattern = re.compile(r"qdisc ingress (\w+:) *")
+            m = pattern.match(qdisc)
+            if m:
+                # No chance to get multiple qdiscs
+                return m.group(1)
+
+    def _add_qdisc(self, direction):
+        if direction == TC_DIRECTION_EGRESS:
+            args = ['root', 'htb']
+        else:
+            args = ['ingress']
+        cmd = ['qdisc', 'add', 'dev', self.name] + args
+        self._execute_tc_cmd(cmd)
+
+    def _get_filters(self, qdisc_id):
+        cmd = ['-p', '-s', '-d', 'filter', 'show', 'dev', self.name,
+               'parent', qdisc_id, 'prio', 1]
+        return self._execute_tc_cmd(cmd)
+
+    def _get_filterid_for_ip(self, qdisc_id, ip):
+        filterids_for_ip = []
+        filter_results = self._get_filters(qdisc_id).split('\n')
+        for line in filter_results:
+            line = line.strip()
+            parts = line.split(" ")
+            pattern = re.compile(
+                r"filter protocol ip u32 fh (\w+::\w+) *"
+            )
+            m = pattern.match(line)
+            if m:
+                filter_id = m.group(1)
+                # It matched, so ip/32 is not here. continue
+                continue
+            elif not line.startswith('match'):
+                continue
+            if ip + '/32' in parts:
+                filterids_for_ip.append(filter_id)
+        if len(filterids_for_ip) > 1:
+            raise MultipleFilterIDForIPFound(ip=ip)
+        if len(filterids_for_ip) == 0:
+            raise FilterIDForIPNotFound(ip=ip)
+        return filterids_for_ip[0]
+
+    def _del_filter_by_id(self, qdisc_id, filterid):
+        cmd = ['filter', 'del', 'dev', self.name,
+               'parent', qdisc_id,
+               'prio', 1, 'handle', filterid, 'u32']
+        self._execute_tc_cmd(cmd)
+
+    def _get_qdisc_filters(self, qdisc_id):
+        filterids = []
+        filter_results = self._get_filters(qdisc_id).split('\n')
+        for line in filter_results:
+            line = line.strip()
+            pattern = re.compile(
+                r"filter protocol ip u32 fh (\w+::\w+) *"
+            )
+            m = pattern.match(line)
+            if m:
+                filter_id = m.group(1)
+                filterids.append(filter_id)
+        return filterids
+
+    def _get_filter_statictics_line(self, qdisc_id, ip):
+        filter_results = self._get_filters(qdisc_id).split('\n')
+        for index, line in enumerate(filter_results):
+            line = line.strip()
+            parts = line.split(" ")
+            if not line.startswith('match'):
+                continue
+            if ip + '/32' in parts:
+                return filter_results[index + 4].strip()
+
+    def _get_tc_rate_value(self, rate):
+        return {'rate': "%dMbit" % rate,
+                'burst': "%dMb" % rate}
+
+    def _add_filter(self, qdisc_id, direction, ip, rate):
+        protocol = ['protocol', 'ip']
+        prio = ['prio', 1]
+        _match = 'src' if direction == TC_DIRECTION_EGRESS else 'dst'
+        match = ['u32', 'match', 'ip', _match, ip]
+        value = self._get_tc_rate_value(rate)
+        police = ['police', 'rate', value['rate'], 'burst', value['burst'],
+                  'mtu', '64kb', 'drop', 'flowid', ':1']
+        args = protocol + prio + match + police
+        cmd = ['filter', 'add', 'dev', self.name,
+               'parent', qdisc_id] + args
+        self._execute_tc_cmd(cmd)
+
+    def _get_or_create_qdisc(self, direction):
+        qdisc_id = self._get_qdisc_id_for_filter(direction)
+        if not qdisc_id:
+            self._add_qdisc(direction)
+            qdisc_id = self._get_qdisc_id_for_filter(direction)
+            if not qdisc_id:
+                raise FailedToAddQdiscToDevice(direction=direction,
+                                               device=self.name)
+        return qdisc_id
+
+
+class FloatingIPTcCommand(FloatingIPTcCommandBase):
+
+    def get_traffic_counters(self, direction, ip):
+        # RESERVED: for future use.
+        qdisc_id = self._get_qdisc_id_for_filter(direction)
+        if not qdisc_id:
+            return
+        line = self._get_filter_statictics_line(qdisc_id, ip)
+        pattern = re.compile(
+            r"Sent (\w+) bytes (\w+) pkts *"
+        )
+        m = pattern.match(line)
+        acc = {'pkts': 0, 'bytes': 0}
+        if m:
+            acc['bytes'] += int(m.group(1))
+            acc['pkts'] += int(m.group(2))
+        return acc
+
+    def clear_all_filters(self, direction):
+        qdisc_id = self._get_qdisc_id_for_filter(direction)
+        if not qdisc_id:
+            return
+        filterids = self._get_qdisc_filters(qdisc_id)
+        for filterid in filterids:
+            self._del_filter_by_id(qdisc_id, filterid)
+
+    def set_ip_rate_limit(self, direction, ip, rate):
+        qdisc_id = self._get_or_create_qdisc(direction)
+        try:
+            filter_id = self._get_filterid_for_ip(qdisc_id, ip)
+            if filter_id:
+                LOG.warning(_LW("Filter %(filter)s for IP %(ip)s in "
+                                "%(direction)s qdisc"
+                                "already existed."),
+                            {'filter': filter_id,
+                             'ip': ip,
+                             'direction': direction})
+        except FilterIDForIPNotFound:
+            self._add_filter(qdisc_id, direction, ip, rate)
+        except MultipleFilterIDForIPFound:
+            raise
+
+    def clear_ip_rate_limit(self, direction, ip):
+        qdisc_id = self._get_qdisc_id_for_filter(direction)
+        if not qdisc_id:
+            return
+        try:
+            filterid = self._get_filterid_for_ip(qdisc_id, ip)
+            if filterid:
+                self._del_filter_by_id(qdisc_id, filterid)
+        except FilterIDForIPNotFound:
+            LOG.warning(_LW("No filter found for %s, skipping filter delete "
+                            "action."), ip)
+        except MultipleFilterIDForIPFound:
+            raise

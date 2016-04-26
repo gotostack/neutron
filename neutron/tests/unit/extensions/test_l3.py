@@ -38,6 +38,7 @@ from neutron.db import common_db_mixin
 from neutron.db import db_base_plugin_v2
 from neutron.db import dns_db
 from neutron.db import external_net_db
+from neutron.db import fip_rate_limit_db
 from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_attrs_db
 from neutron.db import l3_db
@@ -264,9 +265,11 @@ class TestL3NatBasePlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
 # This plugin class is for tests with plugin that integrates L3.
 class TestL3NatIntPlugin(TestL3NatBasePlugin,
-                         l3_db.L3_NAT_db_mixin, dns_db.DNSDbMixin):
+                         l3_db.L3_NAT_db_mixin, dns_db.DNSDbMixin,
+                         fip_rate_limit_db.FloatingIPRatelimitDbMixin):
 
-    supported_extension_aliases = ["external-net", "router", "dns-integration"]
+    supported_extension_aliases = ["external-net", "router", "dns-integration",
+                                   "fip-rate-limit"]
 
 
 # This plugin class is for tests with plugin that integrates L3 and L3 agent
@@ -294,9 +297,11 @@ class TestNoL3NatPlugin(TestL3NatBasePlugin):
 # delegate away L3 routing functionality
 class TestL3NatServicePlugin(common_db_mixin.CommonDbMixin,
                              l3_dvr_db.L3_NAT_with_dvr_db_mixin,
-                             l3_db.L3_NAT_db_mixin, dns_db.DNSDbMixin):
+                             l3_db.L3_NAT_db_mixin, dns_db.DNSDbMixin,
+                             fip_rate_limit_db.FloatingIPRatelimitDbMixin):
 
-    supported_extension_aliases = ["router", "dns-integration"]
+    supported_extension_aliases = ["router", "dns-integration",
+                                   "fip-rate-limit"]
 
     def get_plugin_type(self):
         return service_constants.L3_ROUTER_NAT
@@ -419,7 +424,7 @@ class L3NatTestCaseMixin(object):
     def _create_floatingip(self, fmt, network_id, port_id=None,
                            fixed_ip=None, set_context=False,
                            floating_ip=None, subnet_id=False,
-                           tenant_id=None):
+                           tenant_id=None, rate_limit=None):
         tenant_id = tenant_id or self._tenant_id
         data = {'floatingip': {'name': 'fip',
                                'floating_network_id': network_id,
@@ -434,6 +439,8 @@ class L3NatTestCaseMixin(object):
 
         if subnet_id:
             data['floatingip']['subnet_id'] = subnet_id
+        if rate_limit is not None:
+            data['floatingip']['rate_limit'] = rate_limit
         floatingip_req = self.new_create_request('floatingips', data, fmt)
         if set_context and tenant_id:
             # create a specific auth context for this request
@@ -443,10 +450,12 @@ class L3NatTestCaseMixin(object):
 
     def _make_floatingip(self, fmt, network_id, port_id=None,
                          fixed_ip=None, set_context=False, tenant_id=None,
-                         floating_ip=None, http_status=exc.HTTPCreated.code):
+                         floating_ip=None, rate_limit=None,
+                         http_status=exc.HTTPCreated.code):
         res = self._create_floatingip(fmt, network_id, port_id,
                                       fixed_ip, set_context, floating_ip,
-                                      tenant_id=tenant_id)
+                                      tenant_id=tenant_id,
+                                      rate_limit=rate_limit)
         self.assertEqual(http_status, res.status_int)
         return self.deserialize(fmt, res)
 

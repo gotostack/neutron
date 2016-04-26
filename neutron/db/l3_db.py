@@ -449,6 +449,13 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                                       {'fixed_ips': ext_ips}})
         context.session.expire(router.gw_port)
 
+    def _is_unset_res_rate_limit_allowed(self, context, res_type, res):
+        if (not context.is_admin and 'rate_limit' in res and
+                res['rate_limit'] == 0):
+            msg = (_("You are not permitted to set %s rate limit "
+                     "to 0.") % res_type)
+            raise n_exc.BadRequest(resource=res_type, msg=msg)
+
     def _update_router_gw_info(self, context, router_id, info, router=None):
         # TODO(salvatore-orlando): guarantee atomic behavior also across
         # operations that span beyond the model classes handled by this
@@ -1094,6 +1101,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         fip = floatingip['floatingip']
         fip_id = uuidutils.generate_uuid()
 
+        fip_rate_limit = utils.is_extension_supported(self, 'fip-rate-limit')
+        if fip_rate_limit:
+            self._is_unset_res_rate_limit_allowed(context, 'floatingip', fip)
+
         f_net_id = fip['floating_network_id']
         if not self._core_plugin._network_is_external(context, f_net_id):
             msg = _("Network %s is not a valid external network") % f_net_id
@@ -1156,6 +1167,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             if dns_integration:
                 dns_data = self._process_dns_floatingip_create_precommit(
                     context, floatingip_dict, fip)
+            if fip_rate_limit:
+                self._process_extra_fip_rate_limit_create(context,
+                                                          floatingip_db,
+                                                          fip)
 
         if dns_integration:
             self._process_dns_floatingip_create_postcommit(context,
@@ -1171,6 +1186,11 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
 
     def _update_floatingip(self, context, id, floatingip):
         fip = floatingip['floatingip']
+
+        fip_rate_limit = utils.is_extension_supported(self, 'fip-rate-limit')
+        if fip_rate_limit:
+            self._is_unset_res_rate_limit_allowed(context, 'floatingip', fip)
+
         dns_integration = utils.is_extension_supported(self, 'dns-integration')
         with context.session.begin(subtransactions=True):
             floatingip_db = self._get_floatingip(context, id)
@@ -1185,6 +1205,12 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             if dns_integration:
                 dns_data = self._process_dns_floatingip_update_precommit(
                     context, floatingip_dict)
+            if fip_rate_limit:
+                self._process_extra_fip_rate_limit_update(context,
+                                                          floatingip_db,
+                                                          fip,
+                                                          floatingip_dict)
+
         if dns_integration:
             self._process_dns_floatingip_update_postcommit(context,
                                                            floatingip_dict,

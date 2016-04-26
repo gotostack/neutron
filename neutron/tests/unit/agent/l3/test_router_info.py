@@ -355,7 +355,8 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
             'id': fip_id, 'port_id': _uuid(),
             'floating_ip_address': '15.1.2.3',
             'fixed_ip_address': '192.168.0.2',
-            'status': l3_constants.FLOATINGIP_STATUS_DOWN
+            'status': l3_constants.FLOATINGIP_STATUS_DOWN,
+            'rate_limit': 1
         }
 
         IPDevice.return_value = device = mock.Mock()
@@ -363,6 +364,7 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
         ri = self._create_router()
         ri.get_floating_ips = mock.Mock(return_value=[fip])
 
+        ri.process_ip_rate_limit = mock.Mock()
         fip_statuses = ri.process_floating_ip_addresses(
             mock.sentinel.interface_name)
         self.assertEqual({fip_id: l3_constants.FLOATINGIP_STATUS_ACTIVE},
@@ -376,13 +378,15 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
         fip = {
             'id': fip_id, 'port_id': _uuid(),
             'floating_ip_address': '15.1.2.3',
-            'fixed_ip_address': '192.168.0.2'
+            'fixed_ip_address': '192.168.0.2',
+            'rate_limit': 1
         }
 
         ri = self._create_router()
         ri.floating_ips = [fip]
         ri.get_floating_ips = mock.Mock(return_value=[])
 
+        ri.process_ip_rate_limit = mock.Mock()
         fip_statuses = ri.process_floating_ip_addresses(
             mock.sentinel.interface_name)
 
@@ -396,13 +400,15 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
             'id': fip_id, 'port_id': _uuid(),
             'floating_ip_address': '15.1.2.3',
             'fixed_ip_address': '192.168.0.2',
-            'status': 'DOWN'
+            'status': 'DOWN',
+            'rate_limit': 1
         }
         ri = self._create_router()
         ri.add_floating_ip = mock.Mock(
             return_value=l3_constants.FLOATINGIP_STATUS_ERROR)
         ri.get_floating_ips = mock.Mock(return_value=[fip])
 
+        ri.process_ip_rate_limit = mock.Mock()
         fip_statuses = ri.process_floating_ip_addresses(
             mock.sentinel.interface_name)
 
@@ -418,6 +424,7 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
         ri.remove_floating_ip = mock.Mock()
         ri.router.get = mock.Mock(return_value=[])
 
+        ri.process_ip_rate_limit = mock.Mock()
         fip_statuses = ri.process_floating_ip_addresses(
             mock.sentinel.interface_name)
         self.assertEqual({}, fip_statuses)

@@ -29,6 +29,9 @@ ip: IpFilter, ip, root
 find: RegExpFilter, find, root, find, /sys/class/net, -maxdepth, 1, -type, l, -printf, %.*
 ip_exec: IpNetnsExecFilter, ip, root
 
+# tc_lib
+tc: CommandFilter, tc, root
+
 # For ip monitor
 kill_ip_monitor: KillFilter, root, ip, -9
 

@@ -887,6 +887,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
 
         ri.add_floating_ip = mock.Mock(
             return_value=l3_constants.FLOATINGIP_STATUS_ACTIVE)
+        ri.process_ip_rate_limit = mock.Mock()
         with mock.patch.object(lla.LinkLocalAllocator, '_write'):
             if ri.router['distributed']:
                 ri.fip_ns = agent.get_fip_ns(ex_gw_port['network_id'])
@@ -1121,7 +1122,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
              'status': 'DOWN',
              'floating_network_id': _uuid(),
              'port_id': _uuid(),
-             'host': HOSTNAME}]}
+             'host': HOSTNAME,
+             'rate_limit': 1}]}
 
         router = l3_test_common.prepare_router_data(enable_snat=True)
         router[l3_constants.FLOATINGIP_KEY] = fake_floatingips['floatingips']
@@ -1567,7 +1569,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         router = l3_test_common.prepare_router_data(num_internal_ports=1)
         fip1 = {'id': _uuid(), 'floating_ip_address': '8.8.8.8',
                 'fixed_ip_address': '7.7.7.7', 'status': 'ACTIVE',
-                'port_id': router[l3_constants.INTERFACE_KEY][0]['id']}
+                'port_id': router[l3_constants.INTERFACE_KEY][0]['id'],
+                'rate_limit': 1}
         fip2 = copy.copy(fip1)
         fip2.update({'id': _uuid(), 'status': 'DOWN',
                      'floating_ip_address': '9.9.9.9'})
@@ -1576,6 +1579,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri = legacy_router.LegacyRouter(router['id'], router,
                                         **self.ri_kwargs)
         ri.external_gateway_added = mock.Mock()
+        ri.process_ip_rate_limit = mock.Mock()
         with mock.patch.object(
             agent.plugin_rpc, 'update_floatingip_statuses'
         ) as mock_update_fip_status,\
@@ -1592,7 +1596,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         router = l3_test_common.prepare_router_data(num_internal_ports=1)
         fip1 = {'id': _uuid(), 'floating_ip_address': '8.8.8.8',
                 'fixed_ip_address': '7.7.7.7', 'status': 'ACTIVE',
-                'port_id': router[l3_constants.INTERFACE_KEY][0]['id']}
+                'port_id': router[l3_constants.INTERFACE_KEY][0]['id'],
+                'rate_limit': 1}
         fip2 = copy.copy(fip1)
         fip2.update({'id': _uuid(), 'status': 'DOWN', })
         router[l3_constants.FLOATINGIP_KEY] = [fip1, fip2]
@@ -1600,6 +1605,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri = legacy_router.LegacyRouter(router['id'], router,
                                         **self.ri_kwargs)
         ri.external_gateway_added = mock.Mock()
+        ri.process_ip_rate_limit = mock.Mock()
+
         with mock.patch.object(
             agent.plugin_rpc, 'update_floatingip_statuses'
         ) as mock_update_fip_status,\
@@ -1623,12 +1630,14 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                  'floating_ip_address': '8.8.8.8',
                  'fixed_ip_address': '7.7.7.7',
                  'status': 'DOWN',
-                 'port_id': router[l3_constants.INTERFACE_KEY][0]['id']}]
+                 'port_id': router[l3_constants.INTERFACE_KEY][0]['id'],
+                 'rate_limit': 1}]
 
             ri = legacy_router.LegacyRouter(router['id'],
                                             router,
                                             **self.ri_kwargs)
             ri.external_gateway_added = mock.Mock()
+            ri.process_ip_rate_limit = mock.Mock()
             ri.process(agent)
             # Assess the call for putting the floating IP up was performed
             mock_update_fip_status.assert_called_once_with(
@@ -1655,7 +1664,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                 {'id': fip_id,
                  'floating_ip_address': '8.8.8.8',
                  'fixed_ip_address': '7.7.7.7',
-                 'port_id': router[l3_constants.INTERFACE_KEY][0]['id']}]
+                 'port_id': router[l3_constants.INTERFACE_KEY][0]['id'],
+                 'rate_limit': 1}]
 
             ri = l3router.RouterInfo(router['id'], router, **self.ri_kwargs)
             ri.process_floating_ip_addresses = mock.Mock(

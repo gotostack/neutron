@@ -72,6 +72,10 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
 
         self.iptables_manager.apply()
 
+    def _get_rate_limit_ip_device(self, name=None):
+        name = self.fip_ns.get_rtr_ext_device_name(self.router_id)
+        return ip_lib.IPDevice(name, namespace=self.ns_name)
+
     def floating_ip_added_dist(self, fip, fip_cidr):
         """Add floating IP to FIP namespace."""
         floating_ip = fip['floating_ip_address']

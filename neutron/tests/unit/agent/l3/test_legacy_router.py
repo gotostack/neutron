@@ -44,6 +44,7 @@ class TestBasicRouterOperations(BasicRouterTestCaseFramework):
         device = mock.Mock()
         cidr = '15.1.2.3/32'
 
+        ri._remove_fip_rate_limit = mock.Mock()
         ri.remove_floating_ip(device, cidr)
 
         device.delete_addr_and_conntrack_state.assert_called_once_with(cidr)
