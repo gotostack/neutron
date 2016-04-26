@@ -107,6 +107,7 @@ class FloatingIP(model_base.HasStandardAttributes, model_base.BASEV2,
     may not be associated with an internal port/ip address/router.
     """
 
+    name = sa.Column(sa.String(attributes.NAME_MAX_LEN))
     floating_ip_address = sa.Column(sa.String(64), nullable=False)
     floating_network_id = sa.Column(sa.String(36), nullable=False)
     floating_port_id = sa.Column(sa.String(36),
@@ -886,6 +887,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
     def _make_floatingip_dict(self, floatingip, fields=None,
                               process_extensions=True):
         res = {'id': floatingip['id'],
+               'name': floatingip['name'],
                'tenant_id': floatingip['tenant_id'],
                'floating_ip_address': floatingip['floating_ip_address'],
                'floating_network_id': floatingip['floating_network_id'],
@@ -1056,6 +1058,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                   'last_known_router_id': previous_router_id}
         if 'description' in fip:
             update['description'] = fip['description']
+        if 'name' in fip:
+            update['name'] = fip['name']
         floatingip_db.update(update)
         next_hop = None
         if router_id:
@@ -1135,6 +1139,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             floating_ip_address = floating_fixed_ip['ip_address']
             floatingip_db = FloatingIP(
                 id=fip_id,
+                name=fip.get('name', ''),
                 tenant_id=fip['tenant_id'],
                 status=initial_status,
                 floating_network_id=fip['floating_network_id'],

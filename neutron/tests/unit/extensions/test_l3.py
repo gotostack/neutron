@@ -421,7 +421,8 @@ class L3NatTestCaseMixin(object):
                            floating_ip=None, subnet_id=False,
                            tenant_id=None):
         tenant_id = tenant_id or self._tenant_id
-        data = {'floatingip': {'floating_network_id': network_id,
+        data = {'floatingip': {'name': 'fip',
+                               'floating_network_id': network_id,
                                'tenant_id': tenant_id}}
         if port_id:
             data['floatingip']['port_id'] = port_id
@@ -1992,6 +1993,19 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                 self.assertEqual(port_id, body['floatingip']['port_id'])
                 self.assertEqual(ip_address,
                                  body['floatingip']['fixed_ip_address'])
+
+    def test_floatingip_update_name(self):
+        with self.port() as p:
+            private_sub = {'subnet': {'id':
+                                      p['port']['fixed_ips'][0]['subnet_id']}}
+            with self.floatingip_no_assoc(private_sub) as fip:
+                body = self._show('floatingips', fip['floatingip']['id'])
+                self.assertEqual(body['floatingip']['name'], "fip")
+
+                new_name = "new-fip-name"
+                body = self._update('floatingips', fip['floatingip']['id'],
+                                    {'floatingip': {'name': new_name}})
+                self.assertEqual(body['floatingip']['name'], new_name)
 
     def test_floatingip_create_different_fixed_ip_same_port(self):
         '''This tests that it is possible to delete a port that has
