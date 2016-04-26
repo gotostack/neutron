@@ -15,6 +15,7 @@
 
 from neutron_lib import constants as n_const
 from neutron_lib.plugins import constants as plugin_constants
+from neutron_lib.plugins import directory
 from neutron_lib.services import base as service_base
 from oslo_config import cfg
 from oslo_log import helpers as log_helpers
@@ -31,6 +32,7 @@ from neutron.db import dns_db
 from neutron.db import extraroute_db
 from neutron.db import l3_dvr_ha_scheduler_db
 from neutron.db import l3_dvrscheduler_db
+from neutron.db import l3_fip_qos
 from neutron.db import l3_gwmode_db
 from neutron.db import l3_hamode_db
 from neutron.db import l3_hascheduler_db
@@ -58,7 +60,8 @@ class L3RouterPlugin(service_base.ServicePluginBase,
                      l3_hamode_db.L3_HA_NAT_db_mixin,
                      l3_gwmode_db.L3_NAT_db_mixin,
                      l3_dvr_ha_scheduler_db.L3_DVR_HA_scheduler_db_mixin,
-                     dns_db.DNSDbMixin):
+                     dns_db.DNSDbMixin,
+                     l3_fip_qos.FloatingQoSDbMixin):
 
     """Implementation of the Neutron L3 Router Service Plugin.
 
@@ -72,7 +75,7 @@ class L3RouterPlugin(service_base.ServicePluginBase,
     _supported_extension_aliases = ["dvr", "router", "ext-gw-mode",
                                     "extraroute", "l3_agent_scheduler",
                                     "l3-ha", "router_availability_zone",
-                                    "l3-flavors"]
+                                    "l3-flavors", "qos-fip"]
 
     __native_pagination_support = True
     __native_sorting_support = True
@@ -101,6 +104,9 @@ class L3RouterPlugin(service_base.ServicePluginBase,
         if not hasattr(self, '_aliases'):
             aliases = self._supported_extension_aliases[:]
             disable_dvr_extension_by_config(aliases)
+            plugins = directory.get_plugins().keys()
+            if 'qos' not in [key.lower() for key in plugins]:
+                aliases.remove('qos-fip')
             self._aliases = aliases
         return self._aliases
 
