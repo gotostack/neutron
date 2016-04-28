@@ -4253,7 +4253,8 @@ class TestSubnetsV2(NeutronDbPluginV2TestCase):
                         ctx.session.add(router)
                     with ctx.session.begin():
                         rp = l3_db.RouterPort(router_id=router.id,
-                                              port_id=port['port']['id'])
+                                              port_id=port['port']['id'],
+                                              rate_limit=0)
                         ctx.session.add(rp)
                     data = {'subnet': {'gateway_ip': '10.0.0.99'}}
                     req = self.new_update_request('subnets', data,

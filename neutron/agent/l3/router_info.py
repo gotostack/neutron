@@ -758,6 +758,7 @@ class RouterInfo(object):
         # Process SNAT rules for external gateway
         gw_port = self._router.get('gw_port')
         self._handle_router_snat_rules(gw_port, interface_name)
+        self._handle_router_gateway_rate_limit(gw_port, interface_name)
 
     def external_gateway_nat_fip_rules(self, ex_gw_ip, interface_name):
         dont_snat_traffic_to_internal_ports_if_not_to_floating_ip = (
@@ -828,6 +829,33 @@ class RouterInfo(object):
         self._add_snat_rules(ex_gw_port,
                              self.iptables_manager,
                              interface_name)
+
+    def _empty_router_gateway_rate_limits(self, fip_tc_wrapper):
+        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+            fip_tc_wrapper.clear_all_filters(direction)
+
+    def _handle_router_gateway_rate_limit(self, ex_gw_port, interface_name):
+        self._add_gateway_tc_rules(ex_gw_port, interface_name)
+
+    def _get_gateway_tc_rule_device(self, interface_name):
+        return ip_lib.IPDevice(interface_name, namespace=self.ns_name)
+
+    def _set_gateway_tc_rules(self, device, ex_gw_port):
+        tc_wrapper = self._get_tc_wrapper(device)
+        self._empty_router_gateway_rate_limits(tc_wrapper)
+
+        rate = self.router['external_gateway_info']['rate_limit']
+        for ip_addr in ex_gw_port['fixed_ips']:
+            ex_gw_ip = ip_addr['ip_address']
+            if netaddr.IPAddress(ex_gw_ip).version == 4:
+                if self._snat_enabled:
+                    for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+                        tc_wrapper.set_ip_rate_limit(direction, ex_gw_ip, rate)
+
+    def _add_gateway_tc_rules(self, ex_gw_port, interface_name):
+        device = self._get_gateway_tc_rule_device(interface_name)
+        if ex_gw_port:
+            self._set_gateway_tc_rules(device, ex_gw_port)
 
     def _process_external_on_delete(self, agent):
         fip_statuses = {}

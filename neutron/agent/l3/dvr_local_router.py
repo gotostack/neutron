@@ -419,6 +419,9 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
     def _handle_router_snat_rules(self, ex_gw_port, interface_name):
         pass
 
+    def _handle_router_gateway_rate_limit(self, ex_gw_port, interface_name):
+        pass
+
     def _get_address_scope_mark(self):
         # Prepare address scope iptables rule for internal ports
         internal_ports = self.router.get(l3_constants.INTERFACE_KEY, [])

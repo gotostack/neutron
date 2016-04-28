@@ -34,6 +34,7 @@ import neutron.db.agentschedulers_db
 import neutron.db.dvr_mac_db
 import neutron.db.extraroute_db
 import neutron.db.fip_rate_limit_db
+import neutron.db.gateway_rate_limit_db
 import neutron.db.l3_agentschedulers_db
 import neutron.db.l3_dvr_db
 import neutron.db.l3_gwmode_db
@@ -120,7 +121,8 @@ def list_db_opts():
              neutron.db.l3_dvr_db.router_distributed_opts,
              neutron.db.l3_agentschedulers_db.L3_AGENTS_SCHEDULER_OPTS,
              neutron.db.l3_hamode_db.L3_HA_OPTS,
-             neutron.db.fip_rate_limit_db.fip_opts)
+             neutron.db.fip_rate_limit_db.fip_opts,
+             neutron.db.gateway_rate_limit_db.gateway_opts)
          ),
         ('database',
          neutron.db.migration.cli.get_engine_config())

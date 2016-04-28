@@ -79,6 +79,8 @@ class RouterPort(model_base.BASEV2):
         models_v2.Port,
         backref=orm.backref('routerport', uselist=False, cascade="all,delete"),
         lazy='joined')
+    rate_limit = sa.Column(sa.Integer(), default=0, server_default='0',
+                           nullable=False)
 
 
 class Router(model_base.HasStandardAttributes, model_base.BASEV2,
@@ -457,6 +459,12 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             raise n_exc.BadRequest(resource=res_type, msg=msg)
 
     def _update_router_gw_info(self, context, router_id, info, router=None):
+        gateway_rate_limit = utils.is_extension_supported(self,
+                                                          'gateway-rate-limit')
+        if gateway_rate_limit:
+            self._is_unset_res_rate_limit_allowed(
+                context, 'router gateway', info)
+
         # TODO(salvatore-orlando): guarantee atomic behavior also across
         # operations that span beyond the model classes handled by this
         # class (e.g.: delete_port)
@@ -466,9 +474,16 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         ext_ip_change = self._check_for_external_ip_change(
             context, gw_port, ext_ips)
         network_id = self._validate_gw_info(context, gw_port, info, ext_ips)
+        rate = info.get('rate_limit') if info else None
         if gw_port and ext_ip_change and gw_port['network_id'] == network_id:
             self._update_current_gw_port(context, router_id, router,
                                          ext_ips)
+        elif (gateway_rate_limit and not ext_ip_change
+              and gw_port and gw_port['network_id'] == network_id
+              and rate is not None):
+            # Nothing changed but maybe gateway rate limit
+            self._check_and_update_gw_router_port(context, router_id,
+                                                  router.gw_port['id'], rate)
         else:
             self._delete_current_gw_port(context, router_id, router,
                                          network_id)
