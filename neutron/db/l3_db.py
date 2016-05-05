@@ -1042,32 +1042,45 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                                                     internal_subnet_id,
                                                     floating_network_id)
 
-        return (fip['port_id'], internal_ip_address, router_id)
+        return internal_ip_address, router_id
 
     def _check_and_get_fip_assoc(self, context, fip, floatingip_db):
-        port_id = internal_ip_address = router_id = None
+        port_id = fip.get('port_id')
+        internal_ip_address = router_id = None
+        floating_network_id = floatingip_db['floating_network_id']
+
         if fip.get('fixed_ip_address') and not fip.get('port_id'):
             msg = _("fixed_ip_address cannot be specified without a port_id")
             raise n_exc.BadRequest(resource='floatingip', msg=msg)
-        if fip.get('port_id'):
-            port_id, internal_ip_address, router_id = self._get_assoc_data(
+        if port_id:
+            internal_ip_address, router_id = self._get_assoc_data(
                 context,
                 fip,
-                floatingip_db['floating_network_id'])
+                floating_network_id)
+            if port_id == floatingip_db.fixed_port_id:
+                # Floating IP association is not changed.
+                return port_id, internal_ip_address, router_id
+
             fip_qry = context.session.query(FloatingIP)
             try:
                 fip_qry.filter_by(
                     fixed_port_id=fip['port_id'],
-                    floating_network_id=floatingip_db['floating_network_id'],
+                    floating_network_id=floating_network_id,
                     fixed_ip_address=internal_ip_address).one()
                 raise l3.FloatingIPPortAlreadyAssociated(
                     port_id=fip['port_id'],
                     fip_id=floatingip_db['id'],
                     floating_ip_address=floatingip_db['floating_ip_address'],
                     fixed_ip=internal_ip_address,
-                    net_id=floatingip_db['floating_network_id'])
+                    net_id=floating_network_id)
             except exc.NoResultFound:
                 pass
+
+        if 'port_id' not in fip and floatingip_db.fixed_port_id:
+            fip['port_id'] = port_id = floatingip_db.fixed_port_id
+            internal_ip_address, router_id = self._get_assoc_data(
+                context, fip, floating_network_id)
+
         return port_id, internal_ip_address, router_id
 
     def _update_fip_assoc(self, context, fip, floatingip_db, external_port):
