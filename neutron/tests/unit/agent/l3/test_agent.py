@@ -1910,6 +1910,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         router = {'id': router_id,
                   'external_gateway_info': {},
                   'routes': [],
+                  'portforwardings': [],
                   'distributed': False}
         driver = metadata_driver.MetadataDriver
         with mock.patch.object(
@@ -2035,6 +2036,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
 
         router = {'id': _uuid(),
                   'routes': [],
+                  'portforwardings': [],
                   'admin_state_up': True,
                   'external_gateway_info': {'network_id': 'aaa'}}
 
@@ -2050,6 +2052,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
 
         router = {'id': _uuid(),
                   'routes': [],
+                  'portforwardings': [],
                   'admin_state_up': True,
                   'external_gateway_info': {'network_id': 'aaa'}}
 
@@ -2064,6 +2067,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
 
         router = {'id': _uuid(),
                   'routes': [],
+                  'portforwardings': [],
                   'admin_state_up': True,
                   'external_gateway_info': {'network_id': 'aaa'}}
 
@@ -2077,6 +2081,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
 
         router = {'id': _uuid(),
                   'routes': [],
+                  'portforwardings': [],
                   'admin_state_up': True,
                   'external_gateway_info': {'network_id': 'aaa'}}
 
@@ -2094,6 +2099,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
 
         router = {'id': _uuid(),
                   'routes': [],
+                  'portforwardings': [],
                   'admin_state_up': True,
                   'external_gateway_info': {'network_id': 'bbb'}}
 
@@ -2110,6 +2116,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
 
         router = {'id': _uuid(),
                   'routes': [],
+                  'portforwardings': [],
                   'admin_state_up': True,
                   'external_gateway_info': {'network_id': 'aaa'}}
 

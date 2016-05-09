@@ -189,6 +189,20 @@ class DvrEdgeRouter(dvr_local_router.DvrLocalRouter):
 
         self._add_gateway_tc_rules(ex_gw_port, interface_name)
 
+    def _handle_router_gateway_port_forwardings(self, ex_gw_port):
+        if not self._is_this_snat_host():
+            return
+        if not self.get_ex_gw_port():
+            return
+
+        if not self.snat_namespace:
+            LOG.debug("DVR router: snat namespace not existed.")
+            return
+
+        with self.snat_iptables_manager.defer_apply():
+            self._handle_router_gateway_port_forwarding_rules(
+                ex_gw_port, self.snat_iptables_manager)
+
     def _handle_router_snat_rules(self, ex_gw_port, interface_name):
         if not self._is_this_snat_host():
             return

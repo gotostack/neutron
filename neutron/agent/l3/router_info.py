@@ -75,6 +75,8 @@ class RouterInfo(object):
         self.ingress_ratelimits = {}
         self.egress_ratelimits = {}
 
+        self.portforwardings = []
+
     def initialize(self, process_monitor):
         """Initialize the router on the system.
 
@@ -759,6 +761,7 @@ class RouterInfo(object):
         gw_port = self._router.get('gw_port')
         self._handle_router_snat_rules(gw_port, interface_name)
         self._handle_router_gateway_rate_limit(gw_port, interface_name)
+        self._handle_router_gateway_port_forwardings(ex_gw_port)
 
     def external_gateway_nat_fip_rules(self, ex_gw_ip, interface_name):
         dont_snat_traffic_to_internal_ports_if_not_to_floating_ip = (
@@ -1023,6 +1026,90 @@ class RouterInfo(object):
         with self.iptables_manager.defer_apply():
             self.process_ports_address_scope_iptables()
             self.process_floating_ip_address_scope_rules()
+
+    def _handle_router_gateway_port_forwardings(self, ex_gw_port):
+        self._handle_router_gateway_port_forwarding_rules(
+            ex_gw_port, self.iptables_manager)
+
+    def _handle_router_gateway_port_forwarding_snat_rules(
+            self, external_ip, iptables_manager):
+        portfwds = self.router['portforwardings']
+        for portfwd in portfwds:
+            portfwd['outside_addr'] = external_ip
+            rule = ("-p %(protocol)s"
+                    " -s %(inside_addr)s --sport %(inside_port)s"
+                    " -j SNAT --to %(outside_addr)s:%(outside_port)s"
+                    % portfwd)
+            LOG.debug("Added portforwarding rule_out is '%s'", rule)
+            iptables_manager.ipv4['nat'].add_rule("snat", rule,
+                                                  top=True,
+                                                  tag='portforwarding')
+
+    def _get_gateway_port_external_ip(self, ex_gw_port):
+        if ex_gw_port:
+            # ex_gw_port should not be None in this case
+            # port forwarding rules are added only if ex_gw_port
+            # has an IPv4 address
+            for ip_addr in ex_gw_port['fixed_ips']:
+                ex_gw_ip = ip_addr['ip_address']
+                if netaddr.IPAddress(ex_gw_ip).version == 4:
+                    if self._snat_enabled:
+                        return ex_gw_ip
+
+    def _handle_router_gateway_port_forwarding_rules(
+            self, ex_gw_port, iptables_manager):
+        """Configure port forwarding rules for the router's gateway IP.
+
+        Configures iptables port forwarding rules for the gateway IP of
+        the given router
+        """
+        gw_ext_ip = self._get_gateway_port_external_ip(ex_gw_port)
+        if not gw_ext_ip:
+            return
+
+        self._handle_router_gateway_port_forwarding_snat_rules(
+            gw_ext_ip, iptables_manager)
+        self._handle_router_gateway_port_forwarding_prerouting_rules(
+            gw_ext_ip, iptables_manager)
+
+    def _handle_router_gateway_port_forwarding_prerouting_rules(
+            self, gw_ext_ip, iptables_manager):
+        new_portfwds = self.router['portforwardings']
+
+        # In case the gateway IP was changed but port forwarding rules not
+        for portfwd in new_portfwds:
+            portfwd['outside_addr'] = gw_ext_ip
+
+        old_portfwds = self.portforwardings
+        adds, removes = common_utils.diff_list_of_dict(old_portfwds,
+                                                       new_portfwds)
+        for portfwd in adds:
+            self._update_port_forwarding_prerouting_rule('create',
+                                                         portfwd,
+                                                         iptables_manager)
+        for portfwd in removes:
+            self._update_port_forwarding_prerouting_rule('delete',
+                                                         portfwd,
+                                                         iptables_manager)
+        self.portforwardings = new_portfwds
+
+    def _update_port_forwarding_prerouting_rule(
+            self, operation, portfwd, iptables_manager):
+        """Configure the router's port forwarding rules."""
+        chain_in = "PREROUTING"
+        rule = ("-p %(protocol)s"
+                " -d %(outside_addr)s --dport %(outside_port)s"
+                " -j DNAT --to %(inside_addr)s:%(inside_port)s"
+                % portfwd)
+
+        if operation == 'create':
+            LOG.debug("Added portforwarding rule_in is '%s'", rule)
+            iptables_manager.ipv4['nat'].add_rule(chain_in, rule,
+                                                  tag='portforwarding')
+
+        if operation == 'delete':
+            LOG.debug("Removed portforwarding rule_in is '%s'", rule)
+            iptables_manager.ipv4['nat'].remove_rule(chain_in, rule)
 
     @common_utils.exception_logger()
     def process_delete(self, agent):

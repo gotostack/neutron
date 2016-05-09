@@ -107,7 +107,8 @@ def prepare_router_data(ip_version=4, enable_snat=None, num_internal_ports=1,
         l3_constants.INTERFACE_KEY: [],
         'routes': routes,
         'gw_port': ex_gw_port,
-        'external_gateway_info': external_gateway_info}
+        'external_gateway_info': external_gateway_info,
+        'portforwardings': []}
 
     if enable_floating_ip:
         router[l3_constants.FLOATINGIP_KEY] = [{

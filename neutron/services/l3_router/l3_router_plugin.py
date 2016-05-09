@@ -31,6 +31,7 @@ from neutron.db import l3_db
 from neutron.db import l3_dvr_ha_scheduler_db
 from neutron.db import l3_dvrscheduler_db
 from neutron.db import l3_hamode_db
+from neutron.db import portforwardings_db
 from neutron.plugins.common import constants
 from neutron.quota import resource_registry
 from neutron.services import service_base
@@ -43,7 +44,8 @@ class L3RouterPlugin(service_base.ServicePluginBase,
                      gateway_rate_limit_db.gateway_with_rate_limit_db_mixin,
                      l3_dvr_ha_scheduler_db.L3_DVR_HA_scheduler_db_mixin,
                      dns_db.DNSDbMixin,
-                     fip_rate_limit_db.FloatingIPRatelimitDbMixin):
+                     fip_rate_limit_db.FloatingIPRatelimitDbMixin,
+                     portforwardings_db.PortForwardingDbMixin):
 
     """Implementation of the Neutron L3 Router Service Plugin.
 
@@ -58,7 +60,8 @@ class L3RouterPlugin(service_base.ServicePluginBase,
                                    "gateway-rate-limit",
                                    "extraroute", "l3_agent_scheduler",
                                    "l3-ha", "router_availability_zone",
-                                   "dns-integration", "fip-rate-limit"]
+                                   "dns-integration", "fip-rate-limit",
+                                   "portforwarding"]
 
     @resource_registry.tracked_resources(router=l3_db.Router,
                                          floatingip=l3_db.FloatingIP)

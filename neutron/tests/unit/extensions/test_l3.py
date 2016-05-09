@@ -223,6 +223,32 @@ class L3NatExtensionTestCase(test_extensions_base.ExtensionTestCase):
         self.assertEqual(port_id, res['port_id'])
         self.assertEqual(subnet_id, res['subnet_id'])
 
+    def test_router_add_portforwarding(self):
+        router_id = _uuid()
+
+        portforwarding = {"inside_addr": "10.0.12.13",
+                          "protocol": "TCP",
+                          "outside_port": 22,
+                          "inside_port": 22}
+        return_value = copy.deepcopy(portforwarding)
+
+        instance = self.plugin.return_value
+        instance.add_router_portforwarding.return_value = return_value
+
+        path = _get_path('routers', id=router_id,
+                         action="add_router_portforwarding",
+                         fmt=self.fmt)
+        res = self.api.put(path, self.serialize(portforwarding))
+
+        instance.add_router_portforwarding.assert_called_with(mock.ANY,
+                                                              router_id,
+                                                              portforwarding)
+        self.assertEqual(exc.HTTPOk.code, res.status_int)
+        res = self.deserialize(res)
+        self.assertIn('protocol', res)
+        self.assertEqual(res['outside_port'], 22)
+        self.assertEqual(res['inside_port'], 22)
+
 
 # This base plugin class is for tests.
 class TestL3NatBasePlugin(db_base_plugin_v2.NeutronDbPluginV2,
