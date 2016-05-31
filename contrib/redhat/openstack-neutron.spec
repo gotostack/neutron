@@ -4,8 +4,8 @@
 %{!?upstream_version: %global upstream_version %{version}%{?milestone}}
 
 Name:           openstack-%{service}
-Version:        8.0.0
-Release:        1%{?dist}
+Version:        8.1.2
+Release:        10%{?dist}
 Epoch:          1
 Summary:        OpenStack Networking Service
 
@@ -84,12 +84,11 @@ Requires:       conntrack-tools
 # agent
 Requires:       keepalived
 
-# those are not hard requirements, but are used to implement firewall
-# drivers.
+# Those are not hard requirements, ipset is used by ipset-cleanup in the subpackage,
+# and iptables is used by the l3-agent which currently is not in a separate package.
 Requires:       ipset
 Requires:       iptables
 
-Requires(pre): shadow-utils
 Requires(post): systemd
 Requires(preun): systemd
 Requires(postun): systemd
@@ -110,6 +109,7 @@ capabilities (e.g., QoS, ACLs, network monitoring, etc.)
 Summary:        Neutron Python libraries
 Requires:       python-alembic >= 0.8.0
 Requires:       python-debtcollector >= 1.2.0
+Requires:       python-designateclient >= 1.5.0
 Requires:       python-eventlet >= 0.17.4
 Requires:       python-greenlet >= 0.3.2
 Requires:       python-httplib2 >= 0.7.5
@@ -118,6 +118,7 @@ Requires:       python-keystoneauth1 >= 2.1.0
 Requires:       python-keystoneclient >= 1.6.0
 Requires:       python-keystonemiddleware >= 4.0.0
 Requires:       python-netaddr >= 0.7.12
+Requires:       python-netifaces >= 0.10.4
 Requires:       python-neutronclient >= 2.6.0
 Requires:       python-neutron-lib
 Requires:       python-novaclient >= 2.29.0
@@ -162,6 +163,7 @@ This package contains the Neutron Python library.
 %package -n python-%{service}-tests
 Summary:        Neutron tests
 Requires:       python-%{service} = %{epoch}:%{version}-%{release}
+Requires:       python-ddt >= 1.0.1
 
 
 %description -n python-%{service}-tests
@@ -173,6 +175,7 @@ This package contains Neutron test files.
 
 %package common
 Summary:        Neutron common files
+Requires(pre): shadow-utils
 Requires:       python-%{service} = %{epoch}:%{version}-%{release}
 Requires:       sudo
 
@@ -202,6 +205,8 @@ Neutron.
 Summary:        Neutron Linuxbridge agent
 Requires:       bridge-utils
 Requires:       ebtables
+Requires:       ipset
+Requires:       iptables
 Requires:       openstack-%{service}-common = %{epoch}:%{version}-%{release}
 
 
@@ -248,6 +253,8 @@ Requires:       openstack-%{service}-common = %{epoch}:%{version}-%{release}
 # We require openvswitch when using vsctl to access ovsdb;
 # but if we use native access, then we just need python bindings.
 # since we don't know what users actually use, we depend on both.
+Requires:       ipset
+Requires:       iptables
 Requires:       openvswitch
 Requires:       python-openvswitch
 
@@ -262,6 +269,7 @@ networks using Open vSwitch.
 
 %package metering-agent
 Summary:        Neutron bandwidth metering agent
+Requires:       iptables
 Requires:       openstack-%{service}-common = %{epoch}:%{version}-%{release}
 
 
@@ -705,6 +713,23 @@ fi
 
 
 %changelog
+* Thu Jun 30 2016 LIU Yulong <liuyulong@le.com> 1:8.1.2-10
+- Correct floating IP updating issues
+- Implement router gateway port forwarding
+- Router gateway rate limit
+- Flating IP rate limit
+- Add name attr to floating IP
+
+* Thu Jun 16 2016 Alan Pevec <alan.pevec@redhat.com> 1:8.1.2-1
+- Update to 8.1.2
+
+* Fri Jun 03 2016 Haikel Guemar <hguemar@fedoraproject.org> 1:8.1.1-1
+- Update to 8.1.1
+- Fix OVS startup
+
+* Thu May 12 2016 Alan Pevec <alan.pevec@redhat.com> 1:8.1.0-1
+- Update to 8.1.0
+
 * Thu Apr  7 2016 Haïkel Guémar <hguemar@fedoraproject.org> - 1:8.0.0-1
 - Upstream 8.0.0
 
