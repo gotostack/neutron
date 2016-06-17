@@ -37,6 +37,9 @@ from neutron import service as neutron_service
 
 
 LOG = logging.getLogger(__name__)
+TYPE_GAUGE = 'gauge'
+TYPE_DELTA = 'delta'
+TYPE_CUMULATIVE = 'cumulative'
 
 
 class MeteringPluginRpc(object):
@@ -108,13 +111,41 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
                     'first_update': info['first_update'],
                     'last_update': info['last_update'],
                     'host': self.host}
-
+            data['measurements'] = self.make_measurement_data(
+                info['time'], info['pkts'], info['bytes'])
             LOG.debug("Send metering report: %s", data)
             notifier = n_rpc.get_notifier('metering')
             notifier.info(self.context, 'l3.meter', data)
             info['pkts'] = 0
             info['bytes'] = 0
             info['time'] = 0
+
+    def make_measurement_data(self, time, packets, bytes):
+        byte_cumulative_metric = dict(name='network.l3.bytes',
+                                      type=TYPE_CUMULATIVE,
+                                      unit='B')
+        packet_cumulative_metric = dict(name='network.l3.packets',
+                                        type=TYPE_CUMULATIVE,
+                                        unit='packet')
+        measurements = [dict(metric=byte_cumulative_metric,
+                             volume=bytes),
+                        dict(metric=packet_cumulative_metric,
+                             volume=packets)]
+
+        # Avoid time equal to zero.
+        if time:
+            byte_rate_metric = dict(name='network.l3.bytes.rate',
+                                    type=TYPE_GAUGE,
+                                    unit='B/s')
+            packet_rate_metric = dict(name='network.l3.packets.rate',
+                                      type=TYPE_GAUGE,
+                                      unit='packet/s')
+
+            measurements.append(dict(metric=byte_rate_metric,
+                                     volume=(bytes / time)))
+            measurements.append(dict(metric=packet_rate_metric,
+                                     volume=(packets / time)))
+        return measurements
 
     def _purge_metering_info(self):
         deadline_timestamp = timeutils.utcnow_ts() - self.conf.report_interval
