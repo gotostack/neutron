@@ -713,6 +713,10 @@ fi
 
 
 %changelog
+* Tue Jul 05 2016 LIU Yulong <liuyulong@le.com> 1:8.1.2-10
+- Fix keepalived functional tests
+- Remove unhelpful test of oslo.service ServiceLauncher
+
 * Thu Jun 30 2016 LIU Yulong <liuyulong@le.com> 1:8.1.2-10
 - Correct floating IP updating issues
 - Implement router gateway port forwarding
