@@ -551,6 +551,70 @@ class TestMl2DbOperationBoundsTenant(TestMl2DbOperationBounds):
 
 class TestMl2PortsV2(test_plugin.TestPortsV2, Ml2PluginV2TestCase):
 
+    def test__port_provisioned_with_blocks(self):
+        plugin = manager.NeutronManager.get_plugin()
+        ups = mock.patch.object(plugin, 'update_port_status').start()
+        with self.port() as port:
+            mock.patch('neutron.plugins.ml2.plugin.db.get_port').start()
+            provisioning_blocks.add_provisioning_component(
+                self.context, port['port']['id'], 'port', 'DHCP')
+            plugin._port_provisioned('port', 'evt', 'trigger',
+                                     self.context, port['port']['id'])
+        self.assertFalse(ups.called)
+
+    def test__port_provisioned_no_binding(self):
+        plugin = manager.NeutronManager.get_plugin()
+        with self.network() as net:
+            net_id = net['network']['id']
+        port_id = 'fake_id'
+        port_db = models_v2.Port(
+            id=port_id, tenant_id='tenant', network_id=net_id,
+            mac_address='08:00:01:02:03:04', admin_state_up=True,
+            status='ACTIVE', device_id='vm_id',
+            device_owner=DEVICE_OWNER_COMPUTE
+        )
+        with self.context.session.begin():
+            self.context.session.add(port_db)
+        self.assertIsNone(plugin._port_provisioned('port', 'evt', 'trigger',
+                                                   self.context, port_id))
+
+    def test_create_router_port_and_fail_create_postcommit(self):
+
+        with mock.patch.object(managers.MechanismManager,
+                               'create_port_postcommit',
+                               side_effect=ml2_exc.MechanismDriverError(
+                                   method='create_port_postcommit')):
+            l3_plugin = manager.NeutronManager.get_service_plugins().get(
+                            p_const.L3_ROUTER_NAT)
+            data = {'router': {'name': 'router', 'admin_state_up': True,
+                               'tenant_id': self.context.tenant_id}}
+            r = l3_plugin.create_router(self.context, data)
+            with self.subnet() as s:
+                data = {'subnet_id': s['subnet']['id']}
+                self.assertRaises(ml2_exc.MechanismDriverError,
+                                  l3_plugin.add_router_interface,
+                                  self.context, r['id'], data)
+                res_ports = self._list('ports')['ports']
+                self.assertEqual([], res_ports)
+
+    def test_create_router_port_and_fail_bind_port_if_needed(self):
+
+        with mock.patch.object(ml2_plugin.Ml2Plugin, '_bind_port_if_needed',
+                               side_effect=ml2_exc.MechanismDriverError(
+                                   method='_bind_port_if_needed')):
+            l3_plugin = manager.NeutronManager.get_service_plugins().get(
+                            p_const.L3_ROUTER_NAT)
+            data = {'router': {'name': 'router', 'admin_state_up': True,
+                               'tenant_id': self.context.tenant_id}}
+            r = l3_plugin.create_router(self.context, data)
+            with self.subnet() as s:
+                data = {'subnet_id': s['subnet']['id']}
+                self.assertRaises(ml2_exc.MechanismDriverError,
+                                  l3_plugin.add_router_interface,
+                                  self.context, r['id'], data)
+                res_ports = self._list('ports')['ports']
+                self.assertEqual([], res_ports)
+
     def test_update_port_status_build(self):
         with self.port() as port:
             self.assertEqual('DOWN', port['port']['status'])
