@@ -318,6 +318,9 @@ class L3_NAT_with_dvr_db_mixin(l3_db.L3_NAT_db_mixin,
                         router_id=router_id,
                         port=port,
                         interface_info=interface_info)
+            # Create meter-label-rule to collect floatingip
+            # bandwidth sample.
+            self.process_attach_router_interface_meter(context, router, port)
         return router_interface_info
 
     def _port_has_ipv6_address(self, port, csnat_port_check=True):

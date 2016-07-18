@@ -67,9 +67,10 @@ class MeteringDbMixin(metering.MeteringPluginBase,
 
     def create_metering_label(self, context, metering_label):
         m = metering_label['metering_label']
+        id = m.get('id') if m.get('id') else uuidutils.generate_uuid()
 
         with context.session.begin(subtransactions=True):
-            metering_db = MeteringLabel(id=uuidutils.generate_uuid(),
+            metering_db = MeteringLabel(id=id,
                                         description=m['description'],
                                         tenant_id=m['tenant_id'],
                                         name=m['name'],
@@ -163,10 +164,11 @@ class MeteringDbMixin(metering.MeteringPluginBase,
             ip_prefix = m['remote_ip_prefix']
             direction = m['direction']
             excluded = m['excluded']
+            id = m.get('id') if m.get('id') else uuidutils.generate_uuid()
 
             self._validate_cidr(context, label_id, ip_prefix, direction,
                                 excluded)
-            metering_db = MeteringLabelRule(id=uuidutils.generate_uuid(),
+            metering_db = MeteringLabelRule(id=id,
                                             metering_label_id=label_id,
                                             direction=direction,
                                             excluded=m['excluded'],
