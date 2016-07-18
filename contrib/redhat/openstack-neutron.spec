@@ -713,6 +713,11 @@ fi
 
 
 %changelog
+* Mon Jul 18 2016 Gao Zhengwei <gaozhengwei1@le.com> - 1:8.1.2-10
+- Automatically meter l3 traffic statistics
+- Revert "Fix meter label rule creation"
+- Improve format of sample collected by metering-agent
+
 * Tue Jul 05 2016 LIU Yulong <liuyulong@le.com> 1:8.1.2-10
 - Fix keepalived functional tests
 - Remove unhelpful test of oslo.service ServiceLauncher
