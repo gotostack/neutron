@@ -1787,6 +1787,47 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                        (wrap_name, l3_constants.ROUTER_MARK_MASK))
         self.assertIn(mangle_rule, mangle_rules)
 
+    def test_handle_router_gateway_rate_limit(self):
+        ri = l3router.RouterInfo(_uuid(), {}, **self.ri_kwargs)
+        ri._snat_enabled = True
+        ri.router = {'external_gateway_info': {'rate_limit': 10}}
+        ex_gw_port = {'fixed_ips': [{'ip_address': '192.168.1.4'},
+                                    {'ip_address': '192.168.1.5'}]}
+        tc_wrapper = mock.Mock()
+        with mock.patch.object(ri, '_get_gateway_tc_rule_device'):
+            with mock.patch.object(ri, '_get_tc_wrapper',
+                                   return_value=tc_wrapper):
+                ri._handle_router_gateway_rate_limit(ex_gw_port, "iface")
+                tc_wrapper.set_ip_rate_limit.assert_has_calls(
+                    [mock.call('ingress', '192.168.1.4', 10),
+                     mock.call('egress', '192.168.1.4', 10),
+                     mock.call('ingress', '192.168.1.5', 10),
+                     mock.call('egress', '192.168.1.5', 10)],
+                    any_order=True)
+                self.assertEqual(0, tc_wrapper.clear_ip_rate_limit.call_count)
+                self.assertEqual(4, tc_wrapper.set_ip_rate_limit.call_count)
+
+                ri.router = {'external_gateway_info': {'rate_limit': 20}}
+                ex_gw_port = {'fixed_ips': [{'ip_address': '192.168.2.4'},
+                                            {'ip_address': '192.168.2.5'}]}
+                # Handle the gateway rate limit again in order to
+                # remove the old tc rules.
+                ri._handle_router_gateway_rate_limit(ex_gw_port, "iface")
+                tc_wrapper.clear_ip_rate_limit.assert_has_calls(
+                    [mock.call('ingress', '192.168.1.4'),
+                     mock.call('egress', '192.168.1.4'),
+                     mock.call('ingress', '192.168.1.5'),
+                     mock.call('egress', '192.168.1.5')],
+                    any_order=True)
+                tc_wrapper.set_ip_rate_limit.assert_has_calls(
+                    [mock.call('ingress', '192.168.2.4', 20),
+                     mock.call('egress', '192.168.2.4', 20),
+                     mock.call('ingress', '192.168.2.5', 20),
+                     mock.call('egress', '192.168.2.5', 20)],
+                    any_order=True)
+                self.assertEqual(4, tc_wrapper.clear_ip_rate_limit.call_count)
+                self.assertEqual(8, tc_wrapper.set_ip_rate_limit.call_count)
+
     def test_process_router_delete_stale_internal_devices(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         stale_devlist = [l3_test_common.FakeDev('qr-a1b2c3d4-e5'),

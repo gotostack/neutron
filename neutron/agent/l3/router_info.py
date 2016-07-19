@@ -77,6 +77,8 @@ class RouterInfo(object):
 
         self.portforwardings = []
 
+        self.gateway_ips = set()
+
     def initialize(self, process_monitor):
         """Initialize the router on the system.
 
@@ -833,9 +835,11 @@ class RouterInfo(object):
                              self.iptables_manager,
                              interface_name)
 
-    def _empty_router_gateway_rate_limits(self, fip_tc_wrapper):
-        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
-            fip_tc_wrapper.clear_all_filters(direction)
+    def _empty_router_gateway_rate_limits(self, tc_wrapper):
+        for ip in self.gateway_ips:
+            for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+                tc_wrapper.clear_ip_rate_limit(direction, ip)
+        self.gateway_ips.clear()
 
     def _handle_router_gateway_rate_limit(self, ex_gw_port, interface_name):
         self._add_gateway_tc_rules(ex_gw_port, interface_name)
@@ -852,8 +856,12 @@ class RouterInfo(object):
             ex_gw_ip = ip_addr['ip_address']
             if netaddr.IPAddress(ex_gw_ip).version == 4:
                 if self._snat_enabled:
-                    for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
-                        tc_wrapper.set_ip_rate_limit(direction, ex_gw_ip, rate)
+                    self._set_gateway_ip_rate_limit(tc_wrapper, ex_gw_ip, rate)
+
+    def _set_gateway_ip_rate_limit(self, tc_wrapper, ex_gw_ip, rate):
+        self.gateway_ips.add(ex_gw_ip)
+        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+            tc_wrapper.set_ip_rate_limit(direction, ex_gw_ip, rate)
 
     def _add_gateway_tc_rules(self, ex_gw_port, interface_name):
         device = self._get_gateway_tc_rule_device(interface_name)

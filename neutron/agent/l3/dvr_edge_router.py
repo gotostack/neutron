@@ -20,6 +20,7 @@ from neutron.agent.l3 import dvr_snat_ns
 from neutron.agent.l3 import router_info as router
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import iptables_manager
+from neutron.agent.linux import tc_lib
 from neutron.common import constants as l3_constants
 
 LOG = logging.getLogger(__name__)
@@ -76,6 +77,14 @@ class DvrEdgeRouter(dvr_local_router.DvrLocalRouter):
                            bridge=self.agent_conf.external_network_bridge,
                            namespace=self.snat_namespace.name,
                            prefix=router.EXTERNAL_DEV_PREFIX)
+
+    def _empty_router_gateway_rate_limits(self, tc_wrapper):
+        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+            tc_wrapper.clear_all_filters(direction)
+
+    def _set_gateway_ip_rate_limit(self, tc_wrapper, ex_gw_ip, rate):
+        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+            tc_wrapper.set_ip_rate_limit(direction, ex_gw_ip, rate)
 
     def external_gateway_removed(self, ex_gw_port, interface_name):
         self._external_gateway_removed(ex_gw_port, interface_name)
