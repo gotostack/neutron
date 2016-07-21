@@ -160,6 +160,14 @@ class DvrEdgeRouter(dvr_local_router.DvrLocalRouter):
         # kicks the FW Agent to add rules for the snat namespace
         self.agent.process_router_add(self)
 
+    def _get_tc_handle_ips(self):
+        pass
+
+    def _delete_stale_tc_rules(self, ex_gw_port_id):
+        # Dvr edge router clean all gateway IPs' tc rules everytime,
+        # so it has no stale rule.
+        pass
+
     def _create_snat_namespace(self):
         # TODO(mlavalle): in the near future, this method should contain the
         # code in the L3 agent that creates a gateway for a dvr. The first step

@@ -179,6 +179,7 @@ class BasicRouterOperationsFramework(base.BaseTestCase):
                                         ri.get_internal_device_name,
                                         self.conf)
         ri._set_gateway_tc_rules = mock.Mock()
+        ri._delete_stale_tc_rules = mock.Mock()
         ri.process(agent)
 
 
@@ -827,6 +828,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
              'port_id': _uuid(),
              'host': HOSTNAME}]}
         ri._set_gateway_tc_rules = mock.Mock()
+        ri._delete_stale_tc_rules = mock.Mock()
         ri.process(agent)
         ri.process_floating_ip_addresses.assert_called_with(mock.ANY)
         ri.process_floating_ip_addresses.reset_mock()
@@ -1144,6 +1146,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri = l3router.RouterInfo(router['id'], router, **self.ri_kwargs)
         ri.external_gateway_added = mock.Mock()
         ri._set_gateway_tc_rules = mock.Mock()
+        ri._delete_stale_tc_rules = mock.Mock()
         # Process with NAT
         ri.process(agent)
         orig_nat_rules = ri.iptables_manager.ipv4['nat'].rules[:]
@@ -1172,6 +1175,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri = l3router.RouterInfo(router['id'], router, **self.ri_kwargs)
         ri.external_gateway_added = mock.Mock()
         ri._set_gateway_tc_rules = mock.Mock()
+        ri._delete_stale_tc_rules = mock.Mock()
         # Process without NAT
         ri.process(agent)
         orig_nat_rules = ri.iptables_manager.ipv4['nat'].rules[:]
@@ -1181,6 +1185,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         # Reassign the router object to RouterInfo
         ri.router = router
         ri._set_gateway_tc_rules = mock.Mock()
+        ri._delete_stale_tc_rules = mock.Mock()
         ri.process(agent)
         # For some reason set logic does not work well with
         # IpTablesRule instances
@@ -1232,6 +1237,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri = l3router.RouterInfo(router['id'], router, **self.ri_kwargs)
         ri.external_gateway_added = mock.Mock()
         ri._set_gateway_tc_rules = mock.Mock()
+        ri._delete_stale_tc_rules = mock.Mock()
         # Process with NAT
         ri.process(agent)
         # Add an interface and reprocess
@@ -1296,6 +1302,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri = l3router.RouterInfo(router['id'], router, **self.ri_kwargs)
         ri.external_gateway_added = mock.Mock()
         ri._set_gateway_tc_rules = mock.Mock()
+        ri._delete_stale_tc_rules = mock.Mock()
         # Process with NAT
         ri.process(agent)
         orig_nat_rules = ri.iptables_manager.ipv4['nat'].rules[:]
@@ -1446,6 +1453,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri = l3router.RouterInfo(router['id'], router, **self.ri_kwargs)
         ri.external_gateway_added = mock.Mock()
         ri._set_gateway_tc_rules = mock.Mock()
+        ri._delete_stale_tc_rules = mock.Mock()
         # Process with NAT
         ri.process(agent)
         # Add an IPv4 and IPv6 interface and reprocess
@@ -1461,6 +1469,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri = l3router.RouterInfo(router['id'], router, **self.ri_kwargs)
         ri.external_gateway_added = mock.Mock()
         ri._set_gateway_tc_rules = mock.Mock()
+        ri._delete_stale_tc_rules = mock.Mock()
         # Process with NAT
         ri.process(agent)
         # Add an interface and reprocess
@@ -1540,6 +1549,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             internal_network_added.side_effect = None
 
             ri._set_gateway_tc_rules = mock.Mock()
+            ri._delete_stale_tc_rules = mock.Mock()
             # periodic_sync_routers_task finds out that _rpc_loop failed to
             # process the router last time, it will retry in the next run.
             ri.process(agent)
@@ -1553,6 +1563,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         ri = l3router.RouterInfo(router['id'], router, **self.ri_kwargs)
         ri.external_gateway_added = mock.Mock()
         ri._set_gateway_tc_rules = mock.Mock()
+        ri._delete_stale_tc_rules = mock.Mock()
         # add an internal port
         ri.process(agent)
 
@@ -1601,10 +1612,73 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             mock_get_cidrs.return_value = set(
                 [fip1['floating_ip_address'] + '/32'])
             ri._set_gateway_tc_rules = mock.Mock()
+            ri._delete_stale_tc_rules = mock.Mock()
             ri.process(agent)
             # make sure only the one that wasn't in existing cidrs was sent
             mock_update_fip_status.assert_called_once_with(
                 mock.ANY, ri.router_id, {fip2['id']: 'ACTIVE'})
+
+    def test_process_router__delete_stale_tc_rules(self):
+        agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
+        router = l3_test_common.prepare_router_data(num_internal_ports=1)
+        fip1 = {'id': _uuid(), 'floating_ip_address': '8.8.8.8',
+                'fixed_ip_address': '7.7.7.7', 'status': 'ACTIVE',
+                'port_id': router[l3_constants.INTERFACE_KEY][0]['id'],
+                'rate_limit': 1}
+        router[l3_constants.FLOATINGIP_KEY] = [fip1]
+
+        ri = legacy_router.LegacyRouter(router['id'], router,
+                                        **self.ri_kwargs)
+        ri.external_gateway_added = mock.Mock()
+        ri.process_ip_rate_limit = mock.Mock()
+        with mock.patch.object(
+            agent.plugin_rpc, 'update_floatingip_statuses'
+        ), mock.patch.object(ri, 'get_router_cidrs') as mock_get_cidrs,\
+            mock.patch.object(
+                ri, '_delete_stale_tc_rules') as mock_del_stale_rules:
+            mock_get_cidrs.return_value = set(
+                [fip1['floating_ip_address'] + '/32'])
+            ri._set_gateway_tc_rules = mock.Mock()
+            ri.process(agent)
+            gw_port = ri.get_ex_gw_port()
+            mock_del_stale_rules.assert_called_once_with(gw_port['id'])
+
+    def test__delete_stale_tc_rules(self):
+        router = l3_test_common.prepare_router_data(num_internal_ports=1)
+        fip1 = {'id': _uuid(), 'floating_ip_address': '8.8.8.8',
+                'fixed_ip_address': '7.7.7.7', 'status': 'ACTIVE',
+                'port_id': router[l3_constants.INTERFACE_KEY][0]['id'],
+                'rate_limit': 1}
+        router[l3_constants.FLOATINGIP_KEY] = [fip1]
+
+        ri = legacy_router.LegacyRouter(router['id'], router,
+                                        **self.ri_kwargs)
+        ri.gateway_ips = set(['1.1.1.1'])
+        tc_wrapper = mock.Mock()
+        with mock.patch.object(ri, '_get_tc_wrapper',
+                               return_value=tc_wrapper):
+            gw_port = ri.get_ex_gw_port()
+            filter_id = '800::888'
+            stale_filter_id = '800::800'
+            tc_wrapper.get_filter_id_for_ip.return_value = filter_id
+            tc_wrapper.get_existed_filter_ids.return_value = [stale_filter_id,
+                                                              filter_id]
+            ri._delete_stale_tc_rules(gw_port['id'])
+            tc_wrapper.get_filter_id_for_ip.assert_has_calls(
+                [mock.call('ingress', '8.8.8.8'),
+                 mock.call('ingress', '1.1.1.1'),
+                 mock.call('egress', '8.8.8.8'),
+                 mock.call('egress', '1.1.1.1')],
+                any_order=True)
+            tc_wrapper.get_existed_filter_ids.assert_has_calls(
+                [mock.call('ingress'),
+                 mock.call('egress')],
+                any_order=True)
+            removed_filters = set([stale_filter_id])
+            tc_wrapper.delete_filter_ids.assert_has_calls(
+                [mock.call('ingress', removed_filters),
+                 mock.call('egress', removed_filters)],
+                any_order=True)
 
     def test_process_router_floatingip_status_update_if_processed(self):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
@@ -1628,6 +1702,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                 mock.patch.object(ri, 'get_router_cidrs') as mock_get_cidrs:
             mock_get_cidrs.return_value = set()
             ri._set_gateway_tc_rules = mock.Mock()
+            ri._delete_stale_tc_rules = mock.Mock()
             ri.process(agent)
             # make sure both was sent since not existed in existing cidrs
             mock_update_fip_status.assert_called_once_with(
@@ -1655,6 +1730,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
             ri.external_gateway_added = mock.Mock()
             ri.process_ip_rate_limit = mock.Mock()
             ri._set_gateway_tc_rules = mock.Mock()
+            ri._delete_stale_tc_rules = mock.Mock()
             ri.process(agent)
             # Assess the call for putting the floating IP up was performed
             mock_update_fip_status.assert_called_once_with(
@@ -1689,6 +1765,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                 side_effect=RuntimeError)
             ri.external_gateway_added = mock.Mock()
             ri._set_gateway_tc_rules = mock.Mock()
+            ri._delete_stale_tc_rules = mock.Mock()
             ri.process(agent)
             # Assess the call for putting the floating IP into Error
             # was performed
@@ -1854,7 +1931,8 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
                                   ) as external_gateway_removed,\
                 mock.patch.object(ri, 'external_gateway_added'
                                   ) as external_gateway_added,\
-                mock.patch.object(ri, '_set_gateway_tc_rules'):
+                mock.patch.object(ri, '_set_gateway_tc_rules'),\
+                mock.patch.object(ri, '_delete_stale_tc_rules'):
 
             ri.process(agent)
 
@@ -2504,6 +2582,7 @@ class TestBasicRouterOperations(BasicRouterOperationsFramework):
         agent = l3_agent.L3NATAgent(HOSTNAME, self.conf)
         agent.external_gateway_added = mock.Mock()
         ri._set_gateway_tc_rules = mock.Mock()
+        ri._delete_stale_tc_rules = mock.Mock()
         ri.process(agent)
         agent._router_added(router['id'], router)
         # Make sure radvd monitor is created

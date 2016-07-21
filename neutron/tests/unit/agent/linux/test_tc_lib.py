@@ -662,3 +662,35 @@ class TestFloatingIPTcCommand(base.BaseTestCase):
                     log_fail_as_error=True,
                     extra_ok_codes=None
                 )
+
+    def test_get_filter_id_for_ip(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_qdisc_id_for_filter') as get_disc:
+            get_disc.return_value = EGRESS_QDISC_ID
+            with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                   '_get_filterid_for_ip') as get_filter_id:
+                self.tc.get_filter_id_for_ip(tc_lib.TC_DIRECTION_EGRESS,
+                                             '8.8.8.8')
+                get_filter_id.assert_called_once_with(EGRESS_QDISC_ID,
+                                                      '8.8.8.8')
+
+    def test_get_existed_filter_ids(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_qdisc_id_for_filter') as get_disc:
+            get_disc.return_value = EGRESS_QDISC_ID
+            with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                   '_get_qdisc_filters') as get_filter_ids:
+                self.tc.get_existed_filter_ids(tc_lib.TC_DIRECTION_EGRESS)
+                get_filter_ids.assert_called_once_with(EGRESS_QDISC_ID)
+
+    def test_delete_filter_ids(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_qdisc_id_for_filter') as get_disc:
+            get_disc.return_value = EGRESS_QDISC_ID
+            with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                   '_del_filter_by_id') as del_filter_id:
+                self.tc.delete_filter_ids(tc_lib.TC_DIRECTION_EGRESS,
+                                          [FILETER_ID_1, FILETER_ID_2])
+                del_filter_id.assert_has_calls(
+                    [mock.call(EGRESS_QDISC_ID, FILETER_ID_1),
+                     mock.call(EGRESS_QDISC_ID, FILETER_ID_2)])

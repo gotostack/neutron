@@ -887,6 +887,28 @@ class RouterInfo(object):
         finally:
             self.update_fip_statuses(agent, fip_statuses)
 
+    def _get_tc_handle_ips(self):
+        fips = self.get_floating_ips()
+        floating_ips = set([fip['floating_ip_address'] for fip in fips])
+        return floating_ips | self.gateway_ips
+
+    def _delete_stale_tc_rules(self, ex_gw_port_id):
+        interface_name = self.get_external_device_name(ex_gw_port_id)
+        device = self._get_rate_limit_ip_device(interface_name)
+        tc_wrapper = self._get_tc_wrapper(device)
+        ips = self._get_tc_handle_ips()
+
+        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+            new_filters = set()
+            for ip in ips:
+                filter_id = tc_wrapper.get_filter_id_for_ip(direction, ip)
+                if filter_id:
+                    new_filters.add(filter_id)
+            existed_filter_ids = set(
+                tc_wrapper.get_existed_filter_ids(direction))
+            removed_filters = existed_filter_ids - new_filters
+            tc_wrapper.delete_filter_ids(direction, removed_filters)
+
     def process_external(self, agent):
         fip_statuses = {}
         try:
@@ -905,6 +927,7 @@ class RouterInfo(object):
                 ex_gw_port)
             fip_statuses = self.configure_fip_addresses(interface_name)
 
+            self._delete_stale_tc_rules(ex_gw_port['id'])
         except (n_exc.FloatingIpSetupException,
                 n_exc.IpTablesApplyException):
                 # All floating IPs must be put in error state

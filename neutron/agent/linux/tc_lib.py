@@ -397,6 +397,25 @@ class FloatingIPTcCommand(FloatingIPTcCommandBase):
         for filterid in filterids:
             self._del_filter_by_id(qdisc_id, filterid)
 
+    def get_filter_id_for_ip(self, direction, ip):
+        qdisc_id = self._get_qdisc_id_for_filter(direction)
+        if not qdisc_id:
+            return
+        return self._get_filterid_for_ip(qdisc_id, ip)
+
+    def get_existed_filter_ids(self, direction):
+        qdisc_id = self._get_qdisc_id_for_filter(direction)
+        if not qdisc_id:
+            return
+        return self._get_qdisc_filters(qdisc_id)
+
+    def delete_filter_ids(self, direction, filterids):
+        qdisc_id = self._get_qdisc_id_for_filter(direction)
+        if not qdisc_id:
+            return
+        for filterid in filterids:
+            self._del_filter_by_id(qdisc_id, filterid)
+
     def set_ip_rate_limit(self, direction, ip, rate):
         qdisc_id = self._get_or_create_qdisc(direction)
         try:
