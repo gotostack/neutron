@@ -590,6 +590,26 @@ class TestFloatingIPTcCommand(base.BaseTestCase):
                 self.tc.clear_all_filters(tc_lib.TC_DIRECTION_EGRESS)
                 self.assertEqual(2, self.execute.call_count)
 
+    def test_set_ip_rate_limit_filter_existed(self):
+        with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                               '_get_qdisc_id_for_filter') as get_disc:
+            get_disc.return_value = EGRESS_QDISC_ID
+            with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                   '_get_filterid_for_ip') as get_filter:
+                get_filter.return_value = FILETER_ID_1
+                with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                       '_del_filter_by_id') as del_filter:
+                    with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
+                                           '_add_filter') as add_filter:
+                        ip = "111.111.111.111"
+                        self.tc.set_ip_rate_limit(tc_lib.TC_DIRECTION_EGRESS,
+                                                  ip, 1)
+                        del_filter.assert_called_once_with(
+                            EGRESS_QDISC_ID, FILETER_ID_1)
+                        add_filter.assert_called_once_with(
+                            EGRESS_QDISC_ID, tc_lib.TC_DIRECTION_EGRESS,
+                            ip, 1)
+
     def test_set_ip_rate_limit_no_qdisc(self):
         with mock.patch.object(tc_lib.FloatingIPTcCommandBase,
                                '_get_qdisc_id_for_filter') as get_disc:
