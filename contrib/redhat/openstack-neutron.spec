@@ -5,7 +5,7 @@
 
 Name:           openstack-%{service}
 Version:        8.1.2
-Release:        10%{?dist}
+Release:        11%{?dist}
 Epoch:          1
 Summary:        OpenStack Networking Service
 
@@ -713,6 +713,43 @@ fi
 
 
 %changelog
+* Wed Aug 31 2016 Wen Jian <wenjian@le.com> - 1:8.1.2-11
+- Adds support for Lbaas V3
+
+* Wed Aug 31 2016 Gao Zhengwei <gaozhengwei1@le.com> - 1:8.1.2-11
+- Fixed unit test fail to run
+- In case of: add_metering_label_rule fail to update iptables rule
+- Metering: sync only active routers hosted on the same host
+- Make meter-label related to router in order to monitor floatingip
+
+* Mon Aug 22 2016 LIU Yulong <liuyulong@le.com> - 1:8.1.2-11
+- Do not remove the HA/legacy router gateway secondary IPs
+- Correct floating IP updating with empty dict issue
+
+* Mon Aug 22 2016 LIU Yulong <liuyulong@le.com> - 1:8.1.2-11
+- Check the router gateway IPs prefixlen existence
+- L3 agent: check router namespace existence before delete
+
+* Mon Aug 22 2016 Gao Zhengwei <gaozhengwei1@le.com> - 1:8.1.2-11
+- Update label_id generated from auto monitor floatingip
+- neutron-metering-agent transport sample using UDP
+
+* Mon Aug 08 2016 LIU Yulong <liuyulong@le.com> - 1:8.1.2-11
+- Fixes port device_id/device_owner change in failed operation
+- Filter HA router without HA port bindings after race conditions
+- BGP: exclude legacy fip in DVR fip host routes query
+
+* Thu Jul 28 2016 Gao Zhengwei <gaozhengwei1@le.com> - 1:8.1.2-10
+- Remove metering rules when directly delete floatingip
+
+* Tue Jul 26 2016 LIU Yulong <liuyulong@le.com> 1:8.1.2-10
+- Fix dvr local router fip stale tc rules clean process
+
+* Fri Jul 22 2016 LIU Yulong <liuyulong@le.com> 1:8.1.2-10
+- Enhance tc filter rule processing
+- Delete the existed rule when adding tc filter
+- Fix updating gateway ratelimit issue
+
 * Mon Jul 18 2016 Gao Zhengwei <gaozhengwei1@le.com> - 1:8.1.2-10
 - Automatically meter l3 traffic statistics
 - Revert "Fix meter label rule creation"
