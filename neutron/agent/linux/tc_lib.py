@@ -402,12 +402,13 @@ class FloatingIPTcCommand(FloatingIPTcCommandBase):
         try:
             filter_id = self._get_filterid_for_ip(qdisc_id, ip)
             if filter_id:
-                LOG.warning(_LW("Filter %(filter)s for IP %(ip)s in "
-                                "%(direction)s qdisc"
-                                "already existed."),
-                            {'filter': filter_id,
-                             'ip': ip,
-                             'direction': direction})
+                LOG.debug("Filter %(filter)s for IP %(ip)s in %(direction)s "
+                          "qdisc already existed. Do updating.",
+                          {'filter': filter_id,
+                           'ip': ip,
+                           'direction': direction})
+                self._del_filter_by_id(qdisc_id, filter_id)
+                self._add_filter(qdisc_id, direction, ip, rate)
         except FilterIDForIPNotFound:
             self._add_filter(qdisc_id, direction, ip, rate)
         except MultipleFilterIDForIPFound:
