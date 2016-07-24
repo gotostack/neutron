@@ -1059,13 +1059,17 @@ class BgpTests(test_plugin.Ml2PluginV2TestCase,
 
     def _create_scenario_test_l3_agents(self, agent_confs):
         for item in agent_confs:
+            config = {"agent_mode": item['mode']}
+            ext_ip = item.get('ex_ip')
+            if ext_ip:
+                config["external_device_ip"] = ext_ip
             self.plugin._create_or_update_agent(
                 self.context,
                 {'agent_type': 'L3 agent',
                  'host': item['host'],
                  'binary': 'neutron-l3-agent',
                  'topic': 'test',
-                 'configurations': {"agent_mode": item['mode']}})
+                 'configurations': config})
 
     def _create_scenario_test_ports(self, tenant_id, port_configs):
         ports = []
@@ -1086,11 +1090,14 @@ class BgpTests(test_plugin.Ml2PluginV2TestCase,
 
     def _create_scenario_test_fips(self, ext_net_id,
                                    tenant_id, port_ids):
+        fips = []
         for port_id in port_ids:
             fip_data = {'floatingip': {'floating_network_id': ext_net_id,
                                        'tenant_id': tenant_id,
                                        'port_id': port_id}}
-            self.l3plugin.create_floatingip(self.context, fip_data)
+            fip = self.l3plugin.create_floatingip(self.context, fip_data)
+            fips.append(fip)
+        return fips
 
     def _test_legacy_router_fips_next_hop(self, router_ha=False):
         if router_ha:
@@ -1146,3 +1153,132 @@ class BgpTests(test_plugin.Ml2PluginV2TestCase,
 
     def test_ha_router_fips_has_no_next_hop_to_fip_agent_gateway(self):
         self._test_legacy_router_fips_next_hop(router_ha=True)
+
+    def _test_router_gw_routes(self, router_ha=False, router_distributed=False,
+                               multi_master=False):
+        cfg.CONF.set_override('enable_bgp_gw_routes', True, 'AGENT')
+        if router_ha:
+            cfg.CONF.set_override('l3_ha', True)
+            cfg.CONF.set_override('max_l3_agents_per_router', 2)
+            cfg.CONF.set_override('min_l3_agents_per_router', 2)
+
+        if router_distributed:
+            cfg.CONF.set_override('router_distributed', True)
+
+        gw_prefix = '172.16.10.0/24'
+        tenant_prefix = '10.10.10.0/24'
+        tenant_id = _uuid()
+
+        external_device_ip_1 = "172.16.5.10"
+        agent_confs = [{"host": "network1", "mode": "dvr_snat",
+                        "ex_ip": external_device_ip_1}]
+        external_device_ip_2 = "172.16.5.11"
+        agent_confs.append({"host": "compute1", "mode": "dvr",
+                            "ex_ip": external_device_ip_2})
+
+        routes_count = 2
+        if router_ha:
+            external_device_ip_3 = "172.16.5.12"
+            agent_confs.append({"host": "network2", "mode": "dvr_snat",
+                                "ex_ip": external_device_ip_3})
+
+        if router_distributed and not multi_master:
+            routes_count = 3
+
+        if multi_master and router_ha and not router_distributed:
+            routes_count = 1
+
+        self._create_scenario_test_l3_agents(agent_confs)
+        with self.router_with_external_and_tenant_networks(
+                tenant_id=tenant_id,
+                gw_prefix=gw_prefix,
+                tenant_prefix=tenant_prefix,
+                distributed=router_distributed,
+                ha=router_ha) as res:
+            router, ext_net, int_net = res
+            ext_gw_info = router['external_gateway_info']
+            cvr_gw_ip = ext_gw_info['external_fixed_ips'][0]['ip_address']
+            gw_net_id = ext_net['network']['id']
+            port_configs = [{'net_id': int_net['network']['id'],
+                             'host': 'compute1'}]
+            ports = self._create_scenario_test_ports(tenant_id, port_configs)
+            port_ids = [port['id'] for port in ports]
+            fips = self._create_scenario_test_fips(
+                gw_net_id, tenant_id, port_ids)
+            fip_prefix = fips[0]['floating_ip_address'] + '/32'
+
+            if router_distributed:
+                fip_gw = self.l3plugin.create_fip_agent_gw_port_if_not_exists(
+                    self.context, gw_net_id, 'compute1')
+                dvr_gw_ip = fip_gw['fixed_ips'][0]['ip_address']
+
+            if router_ha:
+                self.l3plugin.update_routers_states(
+                    self.context, {router['id']: 'active'}, 'network1')
+            if multi_master:
+                self.l3plugin.update_routers_states(
+                    self.context, {router['id']: 'active'}, 'network2')
+
+            with self.bgp_speaker(4, 1234, networks=[gw_net_id]) as speaker:
+                bgp_speaker_id = speaker['id']
+                routes = self.bgp_plugin.get_routes_by_bgp_speaker_id(
+                    self.context, bgp_speaker_id)
+                routes = list(routes)
+                self.assertEqual(routes_count, len(routes))
+
+                fip_prefix_found = False
+                cent_gw_verified = False
+                if router_distributed:
+                    fip_gw_verified = False
+
+                for route in routes:
+                    if route['destination'] == fip_prefix:
+                        if not router_distributed:
+                            self.assertEqual(cvr_gw_ip, route['next_hop'])
+                            fip_prefix_found = True
+                        else:
+                            self.assertEqual(dvr_gw_ip, route['next_hop'])
+                            fip_prefix_found = True
+
+                    if (route['destination'] == cvr_gw_ip + '/32' and
+                            route['next_hop'] == external_device_ip_1):
+                        cent_gw_verified = True
+
+                    if (router_distributed and
+                            route['destination'] == dvr_gw_ip + '/32' and
+                            route['next_hop'] == external_device_ip_2):
+                        fip_gw_verified = True
+
+                self.assertTrue(fip_prefix_found)
+
+                if not multi_master:
+                    self.assertTrue(cent_gw_verified)
+                    if router_distributed:
+                        self.assertTrue(fip_gw_verified)
+
+                if multi_master and router_ha:
+                    self.assertFalse(cent_gw_verified)
+                    if router_distributed:
+                        self.assertTrue(fip_gw_verified)
+
+    def test_get_routes_by_bgp_speaker_id_with_fip_and_legacy_gw(self):
+        self._test_router_gw_routes()
+
+    def test_get_routes_by_bgp_speaker_id_with_fip_and_ha_gw(self):
+        self._test_router_gw_routes(router_ha=True)
+
+    def test_get_routes_by_bgp_speaker_id_with_fip_dvr_and_gw(self):
+        self._test_router_gw_routes(router_distributed=True)
+
+    def test_get_routes_by_bgp_speaker_id_with_fip_dvr_snat_ha_and_gw(self):
+        self._test_router_gw_routes(router_ha=True,
+                                    router_distributed=True)
+
+    def test_ha_router_gw_routes_multiple_master_ha(self):
+        self._test_router_gw_routes(router_ha=True,
+                                    multi_master=True)
+
+    def test_ha_router_gw_routes_multiple_master_ha_and_dvr(self):
+        self._test_router_gw_routes(router_ha=True,
+                                    router_distributed=True,
+                                    multi_master=True)

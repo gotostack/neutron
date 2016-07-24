@@ -655,6 +655,9 @@ class L3NATAgentWithStateReport(L3NATAgent):
                 'log_agent_heartbeats': self.conf.AGENT.log_agent_heartbeats},
             'start_flag': True,
             'agent_type': l3_constants.AGENT_TYPE_L3}
+        if self.conf.external_device_ip:
+            self.agent_state['configurations'][
+                'external_device_ip'] = self.conf.external_device_ip
         report_interval = self.conf.AGENT.report_interval
         if report_interval:
             self.heartbeat = loopingcall.FixedIntervalLoopingCall(

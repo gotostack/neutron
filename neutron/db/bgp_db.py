@@ -14,8 +14,10 @@
 
 import itertools
 
+from oslo_config import cfg
 from oslo_db import exception as oslo_db_exc
 from oslo_log import log as logging
+from oslo_serialization import jsonutils
 from oslo_utils import uuidutils
 import sqlalchemy as sa
 from sqlalchemy import and_
@@ -26,16 +28,27 @@ from sqlalchemy.orm import exc as sa_exc
 from neutron_lib import constants as lib_consts
 
 from neutron.api.v2 import attributes as attr
+from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
 from neutron.db import address_scope_db
+from neutron.db import agents_db
 from neutron.db import common_db_mixin as common_db
+from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_attrs_db
 from neutron.db import l3_db
+from neutron.db import l3_hamode_db
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.extensions import bgp as bgp_ext
 from neutron.plugins.ml2 import models as ml2_models
 
+
+bgp_opts = [
+    cfg.BoolOpt('enable_bgp_gw_routes',
+                default=False,
+                help=_("Whether enable the router gateway bgp routes.")),
+]
+cfg.CONF.register_opts(bgp_opts, 'AGENT')
 
 LOG = logging.getLogger(__name__)
 DEVICE_OWNER_ROUTER_GW = lib_consts.DEVICE_OWNER_ROUTER_GW
@@ -457,6 +470,26 @@ class BgpDbMixin(common_db.CommonDbMixin):
                 models_v2.SubnetPool.address_scope_id == address_scope.id)
             return [scope.id for scope in query.all()]
 
+    def _remove_ha_gw_duplicate_routes(self, routes):
+        if len(set([r["destination"] for r in routes])) == len(routes):
+            # No duplicate routes
+            return routes
+
+        rr = dict([(r['destination'], r['next_hop']) for r in routes])
+        route_counts = {}
+        for item in routes:
+            gw_ip = item['destination']
+            if gw_ip not in route_counts:
+                route_counts[gw_ip] = 1
+            else:
+                route_counts[gw_ip] += 1
+
+        for ip, value in route_counts.items():
+            if value > 1:
+                del rr[ip]
+        return [{'destination': x,
+                 'next_hop': y} for x, y in rr.items()]
+
     def get_routes_by_bgp_speaker_id(self, context, bgp_speaker_id):
         """Get all routes that should be advertised by a BgpSpeaker."""
         with context.session.begin(subtransactions=True):
@@ -469,7 +502,19 @@ class BgpDbMixin(common_db.CommonDbMixin):
             dvr_fip_routes = self._get_dvr_fip_host_routes_by_bgp_speaker(
                                                                context,
                                                                bgp_speaker_id)
-            return itertools.chain(fip_routes, net_routes, dvr_fip_routes)
+            routes = [fip_routes, net_routes, dvr_fip_routes]
+            if cfg.CONF.AGENT.enable_bgp_gw_routes:
+                legacy_gw_routes = self._get_legacy_gateway_query(
+                    context, bgp_speaker_id)
+                ha_gw_routes = self._get_ha_gateway_query(
+                    context, bgp_speaker_id)
+                clean_ha_gw_routes = self._remove_ha_gw_duplicate_routes(
+                    ha_gw_routes)
+                dvr_fip_gw_routes = self._get_dvr_fip_gateway_query(
+                    context, bgp_speaker_id)
+                routes += [legacy_gw_routes, clean_ha_gw_routes,
+                           dvr_fip_gw_routes]
+            return itertools.chain(*routes)
 
     def get_routes_by_bgp_speaker_binding(self, context,
                                           bgp_speaker_id, network_id):
@@ -599,6 +644,96 @@ class BgpDbMixin(common_db.CommonDbMixin):
                                     l3_db.Router.id == router_attrs.router_id)
             query = query.filter(router_attrs.distributed != sa.sql.true())
             return self._host_route_list_from_tuples(query.all())
+
+    def _get_gw_base_query(self, context):
+        ML2PortBinding = ml2_models.PortBinding
+        IpAllocation = models_v2.IPAllocation
+        Port = models_v2.Port
+        L3Agent = agents_db.Agent
+        gw_query = context.session.query(Port.network_id,
+                                         ML2PortBinding.host,
+                                         IpAllocation.ip_address,
+                                         L3Agent.configurations)
+        return gw_query
+
+    def _get_legacy_gateway_query(self, context, bgp_speaker_id):
+        with context.session.begin(subtransactions=True):
+            BgpBinding = BgpSpeakerNetworkBinding
+            ML2PortBinding = ml2_models.PortBinding
+            IpAllocation = models_v2.IPAllocation
+            Port = models_v2.Port
+            L3Router = l3_db.Router
+            L3Agent = agents_db.Agent
+            router_attrs = l3_attrs_db.RouterExtraAttributes
+            RouterAgentBinding = l3_agentschedulers_db.RouterL3AgentBinding
+            base_query = self._get_gw_base_query(context)
+
+            #Subquery for legacy gateway ports
+            gw_query = base_query.filter(
+                ML2PortBinding.port_id == Port.id,
+                IpAllocation.port_id == Port.id,
+                L3Router.gw_port_id == Port.id,
+                IpAllocation.subnet_id == models_v2.Subnet.id,
+                models_v2.Subnet.ip_version == 4,
+                Port.device_owner == lib_consts.DEVICE_OWNER_ROUTER_GW,
+                router_attrs.router_id == L3Router.id,
+                router_attrs.ha == sa.sql.false(),
+                RouterAgentBinding.l3_agent_id == L3Agent.id,
+                Port.device_id == RouterAgentBinding.router_id,
+                Port.network_id == BgpBinding.network_id,
+                BgpBinding.bgp_speaker_id == bgp_speaker_id,
+                BgpBinding.ip_version == 4)
+            return self._gw_routes_from_query(gw_query.all())
+
+    def _get_ha_gateway_query(self, context, bgp_speaker_id):
+        with context.session.begin(subtransactions=True):
+            BgpBinding = BgpSpeakerNetworkBinding
+            ML2PortBinding = ml2_models.PortBinding
+            IpAllocation = models_v2.IPAllocation
+            Port = models_v2.Port
+            L3Router = l3_db.Router
+            L3Agent = agents_db.Agent
+            L3HABinding = l3_hamode_db.L3HARouterAgentPortBinding
+            base_query = self._get_gw_base_query(context)
+
+            #Subquery for ha gateway ports
+            gw_query = base_query.filter(
+                ML2PortBinding.port_id == Port.id,
+                IpAllocation.port_id == Port.id,
+                IpAllocation.port_id == L3Router.gw_port_id,
+                IpAllocation.subnet_id == models_v2.Subnet.id,
+                models_v2.Subnet.ip_version == 4,
+                Port.device_owner == lib_consts.DEVICE_OWNER_ROUTER_GW,
+                L3HABinding.state == l3_constants.HA_ROUTER_STATE_ACTIVE,
+                L3HABinding.l3_agent_id == L3Agent.id,
+                L3HABinding.router_id == L3Router.id,
+                Port.network_id == BgpBinding.network_id,
+                BgpBinding.bgp_speaker_id == bgp_speaker_id,
+                BgpBinding.ip_version == 4)
+            return self._gw_routes_from_query(gw_query.all())
+
+    def _get_dvr_fip_gateway_query(self, context, bgp_speaker_id):
+        with context.session.begin(subtransactions=True):
+            BgpBinding = BgpSpeakerNetworkBinding
+            ML2PortBinding = ml2_models.PortBinding
+            IpAllocation = models_v2.IPAllocation
+            Port = models_v2.Port
+            L3Agent = agents_db.Agent
+            base_query = self._get_gw_base_query(context)
+
+            #Subquery for FIP agent gateway ports
+            gw_query = base_query.filter(
+                ML2PortBinding.port_id == Port.id,
+                IpAllocation.port_id == Port.id,
+                IpAllocation.subnet_id == models_v2.Subnet.id,
+                L3Agent.host == ML2PortBinding.host,
+                L3Agent.agent_type == l3_constants.AGENT_TYPE_L3,
+                models_v2.Subnet.ip_version == 4,
+                Port.device_owner == lib_consts.DEVICE_OWNER_AGENT_GW,
+                Port.network_id == BgpBinding.network_id,
+                BgpBinding.bgp_speaker_id == bgp_speaker_id,
+                BgpBinding.ip_version == 4)
+            return self._gw_routes_from_query(gw_query.all())
 
     def _get_dvr_fip_host_routes_by_binding(self, context, network_id,
                                             bgp_speaker_id):
@@ -1013,3 +1148,14 @@ class BgpDbMixin(common_db.CommonDbMixin):
         """Return the list of host routes given a list of (IP, nexthop)"""
         return ({'destination': x + '/32',
                  'next_hop': y} for x, y in ip_next_hop_tuples)
+
+    def _gw_routes_from_query(self, query):
+        route_list = []
+        for item in query:
+            agent_config = jsonutils.loads(item[3])
+            ext_ip = agent_config.get('external_device_ip')
+            if ext_ip:
+                route_list.append({
+                    'destination': item[2] + '/32',
+                    'next_hop': ext_ip})
+        return route_list

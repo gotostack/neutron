@@ -31,6 +31,7 @@ import neutron.agent.ovsdb.api
 import neutron.agent.securitygroups_rpc
 import neutron.db.agents_db
 import neutron.db.agentschedulers_db
+import neutron.db.bgp_db
 import neutron.db.dvr_mac_db
 import neutron.db.extraroute_db
 import neutron.db.l3_agentschedulers_db
@@ -84,7 +85,8 @@ def list_agent_opts():
              neutron.agent.common.config.AGENT_STATE_OPTS,
              neutron.agent.common.config.IPTABLES_OPTS,
              neutron.agent.common.config.PROCESS_MONITOR_OPTS,
-             neutron.agent.common.config.AVAILABILITY_ZONE_OPTS)
+             neutron.agent.common.config.AVAILABILITY_ZONE_OPTS,
+             neutron.db.bgp_db.bgp_opts)
          ),
         ('DEFAULT',
          itertools.chain(

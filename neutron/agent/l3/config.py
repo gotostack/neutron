@@ -100,6 +100,9 @@ OPTS = [
                help=_('Iptables mangle mark used to mark ingress from '
                       'external network. This mark will be masked with '
                       '0xffff so that only the lower 16 bits will be used.')),
+    cfg.IPOpt('external_device_ip',
+              help=_("IP address of external device used to get router "
+                     "gateway BGP routes.")),
 ]
 
 OPTS += config.EXT_NET_BRIDGE_OPTS
