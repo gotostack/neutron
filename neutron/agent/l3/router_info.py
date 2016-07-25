@@ -895,6 +895,8 @@ class RouterInfo(object):
     def _delete_stale_tc_rules(self, ex_gw_port_id):
         interface_name = self.get_external_device_name(ex_gw_port_id)
         device = self._get_rate_limit_ip_device(interface_name)
+        if not device or not device.exists():
+            return
         tc_wrapper = self._get_tc_wrapper(device)
         ips = self._get_tc_handle_ips()
 
