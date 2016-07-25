@@ -1306,6 +1306,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         self._core_plugin.delete_port(context.elevated(),
                                       floatingip['floating_port_id'],
                                       l3_port_check=False)
+        # Delete meter label that associate with floatingip.
+        if floatingip_dict.get('port_id'):
+            self.process_disassociate_floatingip_meter(context,
+                                                       floatingip_dict)
         return floatingip_dict
 
     def delete_floatingip(self, context, id):
