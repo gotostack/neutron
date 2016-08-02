@@ -13,6 +13,7 @@
 # under the License.
 
 import sys
+import uuid
 
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -34,6 +35,7 @@ from neutron.common import utils
 from neutron import context
 from neutron import manager
 from neutron import service as neutron_service
+from neutron.services.metering.publisher import udp
 
 
 LOG = logging.getLogger(__name__)
@@ -74,6 +76,12 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
                    help=_("Interval between two metering measures")),
         cfg.IntOpt('report_interval', default=300,
                    help=_("Interval between two metering reports")),
+        cfg.BoolOpt('enable_udp_publisher', default=False,
+                   help=_("Method of transport sample,"
+                          "default method is notify")),
+        cfg.StrOpt('sample_source',
+                   default='openstack',
+                   help=_("Source for samples emitted on this instance.")),
     ]
 
     def __init__(self, host, conf=None):
@@ -91,6 +99,9 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         self.label_tenant_id = {}
         self.routers = {}
         self.metering_infos = {}
+
+        if self.conf.enable_udp_publisher:
+            self.publisher = udp.UDPPublisher()
         super(MeteringAgent, self).__init__(host=host)
 
     def _load_drivers(self):
@@ -113,12 +124,34 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
                     'host': self.host}
             data['measurements'] = self.make_measurement_data(
                 info['time'], info['pkts'], info['bytes'])
-            LOG.debug("Send metering report: %s", data)
-            notifier = n_rpc.get_notifier('metering')
-            notifier.info(self.context, 'l3.meter', data)
+            if self.conf.enable_udp_publisher:
+                samples = self._meter_samples_from_data(data)
+                self.publisher.publish_samples(self.context, samples)
+            else:
+                LOG.debug("Send metering report: %s", data)
+                notifier = n_rpc.get_notifier('metering')
+                notifier.info(self.context, 'l3.meter', data)
             info['pkts'] = 0
             info['bytes'] = 0
             info['time'] = 0
+
+    def _meter_samples_from_data(self, data):
+        measurements = data.pop('measurements', [])
+        samples = []
+        for m in measurements:
+            sample = {'id': str(uuid.uuid1()),
+                      'name': m['metric']['name'],
+                      'type': m['metric']['type'],
+                      'unit': m['metric']['unit'],
+                      'volume': m['volume'],
+                      'source': self.conf.sample_source,
+                      'user_id': None,
+                      'project_id': data['tenant_id'],
+                      'resource_id': data['label_id'],
+                      'timestamp': data['last_update'],
+                      'resource_metadata': data}
+            samples.append(sample)
+        return samples
 
     def make_measurement_data(self, time, packets, bytes):
         byte_cumulative_metric = dict(name='network.l3.bytes',

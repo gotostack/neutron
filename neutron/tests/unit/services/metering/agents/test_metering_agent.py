@@ -13,12 +13,14 @@
 # under the License.
 
 import mock
+import msgpack
 from oslo_config import cfg
 from oslo_utils import fixture as utils_fixture
 from oslo_utils import timeutils
 from oslo_utils import uuidutils
 
 from neutron.services.metering.agents import metering_agent
+from neutron.services.metering.publisher import udp
 from neutron.tests import base
 from neutron.tests import fake_notifier
 
@@ -70,7 +72,6 @@ class TestMeteringOperations(base.BaseTestCase):
         loopingcall_patch = mock.patch(
             'oslo_service.loopingcall.FixedIntervalLoopingCall')
         loopingcall_patch.start()
-
         self.agent = metering_agent.MeteringAgent('my agent', cfg.CONF)
         self.driver = self.agent.metering_driver
 
@@ -122,6 +123,55 @@ class TestMeteringOperations(base.BaseTestCase):
         self.assertEqual(LABEL_ID, payload['label_id'])
         self.assertEqual(88, payload['pkts'])
         self.assertEqual(444, payload['bytes'])
+
+    @staticmethod
+    def _make_fake_socket(published):
+        def _fake_socket_socket(family, type):
+            def record_data(msg, dest):
+                published.append((msg, dest))
+
+            udp_socket = mock.Mock()
+            udp_socket.sendto = record_data
+            return udp_socket
+
+        return _fake_socket_socket
+
+    def test_udp_publisher_report_with_metadata(self):
+        cfg.CONF.set_override('shrink_metadata', False, 'publisher')
+        self._test_udp_publisher_report()
+
+    def test_udp_publisher_report_without_metadata(self):
+        cfg.CONF.set_override('shrink_metadata', True, 'publisher')
+        self._test_udp_publisher_report()
+
+    def _test_udp_publisher_report(self):
+        cfg.CONF.set_override('enable_udp_publisher', True)
+        self.agent.routers_updated(None, ROUTERS)
+        self.driver.get_traffic_counters.return_value = {LABEL_ID:
+                                                         {'pkts': 33,
+                                                          'bytes': 555}}
+        data_sent = []
+        with mock.patch('socket.socket',
+                        self._make_fake_socket(data_sent)):
+            self.agent.publisher = udp.UDPPublisher()
+        self.agent._metering_loop()
+        self.assertEqual(2, len(data_sent))
+        sent_counters = []
+        for data, dest in data_sent:
+            counter = msgpack.loads(data, encoding="utf-8")
+            sent_counters.append(counter)
+        if 'network.l3.bytes' in sent_counters[0]['counter_name']:
+            pkts_msg = sent_counters[0]
+        else:
+            pkts_msg = sent_counters[1]
+        self.assertEqual(TENANT_ID, pkts_msg['project_id'])
+        self.assertEqual(LABEL_ID, pkts_msg['resource_id'])
+        self.assertEqual(555, pkts_msg['counter_volume'])
+        if cfg.CONF.publisher.shrink_metadata:
+            self.assertEqual({}, pkts_msg['resource_metadata'])
+        else:
+            self.assertEqual(LABEL_ID,
+                             pkts_msg['resource_metadata']['label_id'])
 
     def test_notification_report_interval(self):
         measure_interval = 30

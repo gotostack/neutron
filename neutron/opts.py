@@ -60,6 +60,8 @@ import neutron.plugins.ml2.drivers.type_vxlan
 import neutron.quota
 import neutron.service
 import neutron.services.metering.agents.metering_agent
+import neutron.services.metering.publisher.udp
+import neutron.services.metering.publisher.utils
 import neutron.services.qos.notification_drivers.manager
 import neutron.wsgi
 
@@ -237,7 +239,10 @@ def list_metering_agent_opts():
              neutron.services.metering.agents.metering_agent.MeteringAgent.
              Opts,
              neutron.agent.common.config.INTERFACE_DRIVER_OPTS)
-         )
+         ),
+        ('publisher',
+         itertools.chain(neutron.services.metering.publisher.udp.OPTS,
+             neutron.services.metering.publisher.utils.OPTS)),
     ]
 
 
