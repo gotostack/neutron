@@ -2127,7 +2127,41 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                     self.assertEqual(str(ip_range[-2]),
                                      body_2['floatingip']['fixed_ip_address'])
 
-    def test_floatingip_update_port_id_scenarios(
+    def test_floatingip_update_empty_dict_scenarios(
+        self, expected_status=l3_constants.FLOATINGIP_STATUS_ACTIVE):
+        with self.port() as p:
+            private_sub = {'subnet': {'id':
+                                      p['port']['fixed_ips'][0]['subnet_id']}}
+            with self.floatingip_no_assoc(private_sub) as fip:
+                body = self._show('floatingips', fip['floatingip']['id'])
+                self.assertIsNone(body['floatingip']['port_id'])
+                self.assertIsNone(body['floatingip']['fixed_ip_address'])
+                self.assertEqual(expected_status, body['floatingip']['status'])
+
+                # 1. Update floating IP without port_id (before associate)
+                body = self._update('floatingips', fip['floatingip']['id'],
+                                    {'floatingip': {}})
+                self.assertIsNone(body['floatingip']['port_id'])
+                self.assertIsNone(body['floatingip']['fixed_ip_address'])
+
+                port_id = p['port']['id']
+                ip_address = p['port']['fixed_ips'][0]['ip_address']
+                # 2. Update floating IP with port_id (associate)
+                body = self._update('floatingips', fip['floatingip']['id'],
+                                    {'floatingip': {'port_id': port_id}})
+                self.assertEqual(port_id, body['floatingip']['port_id'])
+                self.assertEqual(ip_address,
+                                 body['floatingip']['fixed_ip_address'])
+
+                # 3. Update floating IP without port_id
+                body = self._update('floatingips', fip['floatingip']['id'],
+                                    {'floatingip': {}})
+                # No errors, and nothing changed
+                self.assertEqual(port_id, body['floatingip']['port_id'])
+                self.assertEqual(ip_address,
+                                 body['floatingip']['fixed_ip_address'])
+
+    def test_floatingip_update_same_port_id_twice(
         self, expected_status=l3_constants.FLOATINGIP_STATUS_ACTIVE):
         with self.port() as p:
             private_sub = {'subnet': {'id':
@@ -2150,14 +2184,6 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                 # 2. Update floating IP with same port again
                 body = self._update('floatingips', fip['floatingip']['id'],
                                     {'floatingip': {'port_id': port_id}})
-                # No errors, and nothing changed
-                self.assertEqual(port_id, body['floatingip']['port_id'])
-                self.assertEqual(ip_address,
-                                 body['floatingip']['fixed_ip_address'])
-
-                # 3. Update floating IP without port_id
-                body = self._update('floatingips', fip['floatingip']['id'],
-                                    {'floatingip': {}})
                 # No errors, and nothing changed
                 self.assertEqual(port_id, body['floatingip']['port_id'])
                 self.assertEqual(ip_address,
