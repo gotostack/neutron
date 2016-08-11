@@ -92,6 +92,9 @@ class BgpPlugin(service_base.ServicePluginBase,
         registry.subscribe(self.router_gateway_callback,
                            resources.ROUTER_GATEWAY,
                            events.AFTER_DELETE)
+        registry.subscribe(self.ha_router_state_change_callback,
+                           resources.HA_ROUTER,
+                           events.AFTER_UPDATE)
 
     def create_bgp_speaker(self, context, bgp_speaker):
         bgp_speaker = super(BgpPlugin, self).create_bgp_speaker(context,
@@ -160,6 +163,23 @@ class BgpPlugin(service_base.ServicePluginBase,
                 self.start_route_advertisements(ctx, self._bgp_rpc,
                                                 bgp_speaker.id,
                                                 [new_host_route])
+
+    def ha_router_state_change_callback(
+            self, resource, event, trigger, **kwargs):
+        if event != events.AFTER_UPDATE:
+            return
+        states = kwargs['states']
+        router_ids = states.keys()
+        router_ids = [router_id for router_id in router_ids
+                      if states[router_id] == n_const.HA_ROUTER_STATE_ACTIVE]
+        ctx = context.get_admin_context()
+        for router_id in router_ids:
+            speaker_ids = self._get_bgp_speaker_ids_by_router(ctx, router_id)
+            for speaker_id in speaker_ids:
+                routes = self._get_ha_gateway_routes_with_router_id(
+                    ctx, speaker_id, router_id)
+                self.start_route_advertisements(ctx, self._bgp_rpc,
+                                                speaker_id, routes)
 
     def router_interface_callback(self, resource, event, trigger, **kwargs):
         if event == events.AFTER_CREATE:

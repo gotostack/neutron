@@ -27,6 +27,10 @@ from sqlalchemy import orm
 
 from neutron._i18n import _, _LI
 from neutron.api.v2 import attributes
+from neutron.callbacks import events
+from neutron.callbacks import exceptions
+from neutron.callbacks import registry
+from neutron.callbacks import resources
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
 from neutron.common import utils as n_utils
@@ -38,10 +42,12 @@ from neutron.db import l3_db
 from neutron.db import l3_dvr_db
 from neutron.db import model_base
 from neutron.db import models_v2
+from neutron.extensions import bgp
 from neutron.extensions import l3
 from neutron.extensions import l3_ext_ha_mode as l3_ha
 from neutron.extensions import portbindings
 from neutron.extensions import providernet
+from neutron import manager
 from neutron.plugins.common import utils as p_utils
 
 
@@ -739,6 +745,19 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             context, router_ids=states.keys(), host=host)
         self._set_router_states(context, bindings, states)
         self._update_router_port_bindings(context, states, host)
+
+        bgp_plugin = manager.NeutronManager.get_service_plugins().get(
+            bgp.BGP_EXT_ALIAS)
+        if (bgp_plugin and
+                n_utils.is_extension_supported(
+                    bgp_plugin, bgp.BGP_EXT_ALIAS) and
+                cfg.CONF.AGENT.enable_bgp_gw_routes):
+            try:
+                kwargs = {'states': states}
+                registry.notify(
+                    resources.HA_ROUTER, events.AFTER_UPDATE, self, **kwargs)
+            except exceptions.CallbackFailure:
+                pass
 
     def _update_router_port_bindings(self, context, states, host):
         admin_ctx = context.elevated()
