@@ -92,23 +92,13 @@ class AgentMixin(object):
         self._init_ha_conf_path()
         super(AgentMixin, self).__init__(host)
         self.state_change_notifier = batch_notifier.BatchNotifier(
-            self._calculate_batch_duration(), self.notify_server)
+            self.conf.ha_vrrp_advert_int, self.notify_server)
         eventlet.spawn(self._start_keepalived_notifications_server)
 
     def _start_keepalived_notifications_server(self):
         state_change_server = (
             L3AgentKeepalivedStateChangeServer(self, self.conf))
         state_change_server.run()
-
-    def _calculate_batch_duration(self):
-        # Slave becomes the master after not hearing from it 3 times
-        detection_time = self.conf.ha_vrrp_advert_int * 3
-
-        # Keepalived takes a couple of seconds to configure the VIPs
-        configuration_time = 2
-
-        # Give it enough slack to batch all events due to the same failure
-        return (detection_time + configuration_time) * 2
 
     def enqueue_state_change(self, router_id, state):
         LOG.info(_LI('Router %(router_id)s transitioned to %(state)s'),
