@@ -495,8 +495,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         if old_gw_port:
             if not new_gw_port:
                 # Delete old meter-label.
-                self.process_disable_gateway_meter(context, router['id'],
-                                                   old_gw_port['id'])
+                self.process_disable_gateway_meter(context, router['id'])
             # TODO(zhengwei): delete old meter-label and new meter-label.
         elif new_gw_port and new_gw_port['fixed_ips']:
             # Add meter-label for gateway.
@@ -549,8 +548,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         with context.session.begin(subtransactions=True):
             context.session.delete(router)
         if 'gw_port' in old_router:
-            self.process_disable_gateway_meter(context, old_router['id'],
-                                               old_router['gw_port_id'])
+            self.process_disable_gateway_meter(context, old_router['id'])
 
     def get_router(self, context, id, fields=None):
         router = self._get_router(context, id)

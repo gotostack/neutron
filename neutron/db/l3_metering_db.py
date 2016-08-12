@@ -97,7 +97,7 @@ class L3_metering_db_mixin(object):
 
         # Create ingress/egress meter label for floatingip.
         fip_lables = self.create_floatingip_label_pair(
-            context, router['gw_port_id'],
+            context, router['id'],
             router['tenant_id'], gw_ip_address)
         # Create meter rule for attached subnet.
         ports = self._get_router_interface_ports(context, router['id'])
@@ -119,7 +119,7 @@ class L3_metering_db_mixin(object):
                   {'router_id': router['id'], 'port_id': port['id']})
 
         # Create meter rule for attached subnet.
-        labels = self._get_label_id_pair(router['gw_port_id'])
+        labels = self._get_label_id_pair(router['id'])
         self._process_port_include_rules(context, port,
                                          labels,
                                          router['tenant_id'])
@@ -138,7 +138,7 @@ class L3_metering_db_mixin(object):
         fixed_port_id = floatingip['port_id']
         tenant_id = floatingip['tenant_id']
         fip_lables = self.create_floatingip_label_pair(
-            context, floatingip['floating_port_id'],
+            context, floatingip['id'],
             tenant_id, floatingip['floating_ip_address'])
         cidr = common_utils.ip_to_cidr(floatingip['fixed_ip_address'])
         self.create_floatingip_rule_pair(context, fixed_port_id,
@@ -146,7 +146,7 @@ class L3_metering_db_mixin(object):
                                          tenant_id, cidr)
 
         router = self.get_router(context, floatingip['router_id'])
-        labels = self._get_label_id_pair(router['gw_port_id'])
+        labels = self._get_label_id_pair(router['id'])
         self.create_floatingip_rule_pair(context, fixed_port_id,
                                          labels,
                                          tenant_id, cidr, excluded=True)
@@ -172,12 +172,12 @@ class L3_metering_db_mixin(object):
             self.create_meter_rule(context, rule_id, labels[direction],
                                    tenant_id, cidr, direction, excluded)
 
-    def process_disable_gateway_meter(self, context, router_id, gw_port_id):
+    def process_disable_gateway_meter(self, context, router_id):
         """Process deleting meter labels for router gateway."""
         if self.metering_plugin is None:
             return
         LOG.debug('Deleting meter labels for router %s.', router_id)
-        self.delete_fip_label_pair(context, gw_port_id)
+        self.delete_fip_label_pair(context, router_id)
 
     def process_disattach_router_interface_meter(self, context, port):
         """Process deleting meter rules for router interface."""
@@ -193,7 +193,7 @@ class L3_metering_db_mixin(object):
             return
         LOG.debug("Deleting meter labels and rules for floating IP %s.",
                   fip['floating_ip_address'])
-        self.delete_fip_label_pair(context, fip['floating_port_id'])
+        self.delete_fip_label_pair(context, fip['id'])
         self.delete_fip_rule_pair(context, fip['port_id'], excluded=True)
 
     def delete_fip_label_pair(self, context, raw_id):

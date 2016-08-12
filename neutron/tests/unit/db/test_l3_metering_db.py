@@ -67,14 +67,14 @@ class L3_metering_db_mixin(base.BaseTestCase):
         self.assertEqual(2, self.db.create_meter_rule.call_count)
         calls_list = [mock.call(mock.ANY,
                                 '0f_port_id',
-                                '00_gw_port_id',
+                                '00_router_id',
                                 'my_tenant_id',
                                 '192.168.100.0/24',
                                 'ingress',
                                 False),
                       mock.call(mock.ANY,
                                 '0d_port_id',
-                                '01_gw_port_id',
+                                '01_router_id',
                                 'my_tenant_id',
                                 '192.168.100.0/24',
                                 'egress',
@@ -89,12 +89,12 @@ class L3_metering_db_mixin(base.BaseTestCase):
         self.db.create_meter_label = mock.Mock()
         self.db.process_associate_floatingip_meter(self.ctx, FLOATINGIP_1)
         calls_list = [mock.call(mock.ANY,
-                                '00_floating_port_id',
+                                '00_floatingip_id',
                                 'my_tenant_id',
                                 '8.8.8.8',
                                 'ingress'),
                       mock.call(mock.ANY,
-                                '01_floating_port_id',
+                                '01_floatingip_id',
                                 'my_tenant_id',
                                 '8.8.8.8',
                                 'egress')]
@@ -104,10 +104,9 @@ class L3_metering_db_mixin(base.BaseTestCase):
                 return_value=mock.Mock())
     def test_process_disable_gateway_meter(self, mock_plugins):
         self.db.delete_meter_label = mock.Mock()
-        self.db.process_disable_gateway_meter(self.ctx, ROUTER_1['id'],
-                                              ROUTER_1['gw_port_id'])
-        calls_list = [mock.call(mock.ANY, '00_gw_port_id'),
-                      mock.call(mock.ANY, '01_gw_port_id')]
+        self.db.process_disable_gateway_meter(self.ctx, ROUTER_1['id'])
+        calls_list = [mock.call(mock.ANY, '00_router_id'),
+                      mock.call(mock.ANY, '01_router_id')]
         self.db.delete_meter_label.assert_has_calls(calls_list, any_order=True)
 
     @mock.patch('neutron.manager.NeutronManager.get_service_plugins',
@@ -125,8 +124,8 @@ class L3_metering_db_mixin(base.BaseTestCase):
         self.db.delete_meter_label = mock.Mock()
         self.db.delete_meter_rule = mock.Mock()
         self.db.process_disassociate_floatingip_meter(self.ctx, FLOATINGIP_1)
-        calls_list_label = [mock.call(mock.ANY, '00_floating_port_id'),
-                            mock.call(mock.ANY, '01_floating_port_id')]
+        calls_list_label = [mock.call(mock.ANY, '00_floatingip_id'),
+                            mock.call(mock.ANY, '01_floatingip_id')]
         calls_list_rule = [mock.call(mock.ANY, '0e_fixed_port_id'),
                            mock.call(mock.ANY, '0c_fixed_port_id')]
         self.db.delete_meter_label.assert_has_calls(calls_list_label,
