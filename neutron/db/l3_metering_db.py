@@ -97,8 +97,8 @@ class L3_metering_db_mixin(object):
 
         # Create ingress/egress meter label for floatingip.
         fip_lables = self.create_floatingip_label_pair(
-            context, router['id'],
-            router['tenant_id'], gw_ip_address)
+            context, router['id'], router['tenant_id'],
+            gw_ip_address, router['id'])
         # Create meter rule for attached subnet.
         ports = self._get_router_interface_ports(context, router['id'])
         for port in ports:
@@ -139,7 +139,8 @@ class L3_metering_db_mixin(object):
         tenant_id = floatingip['tenant_id']
         fip_lables = self.create_floatingip_label_pair(
             context, floatingip['id'],
-            tenant_id, floatingip['floating_ip_address'])
+            tenant_id, floatingip['floating_ip_address'],
+            floatingip['router_id'])
         cidr = common_utils.ip_to_cidr(floatingip['fixed_ip_address'])
         self.create_floatingip_rule_pair(context, fixed_port_id,
                                          fip_lables,
@@ -152,14 +153,14 @@ class L3_metering_db_mixin(object):
                                          tenant_id, cidr, excluded=True)
 
     def create_floatingip_label_pair(self, context, raw_id,
-                                     tenant_id,
-                                     floatingip_address):
+                                     tenant_id, floatingip_address,
+                                     router_id):
         """Get and create meter labels for floatingip."""
         labels = self._get_label_id_pair(raw_id)
         for direction, label_id in six.iteritems(labels):
             self.create_meter_label(context, label_id,
                                     tenant_id, floatingip_address,
-                                    direction)
+                                    router_id, direction)
         return labels
 
     def create_floatingip_rule_pair(self, context, raw_id,
@@ -206,25 +207,31 @@ class L3_metering_db_mixin(object):
         for _, rule_id in six.iteritems(rules):
             self.delete_meter_rule(context, rule_id)
 
-    def create_meter_label(self, context, label_id, tenant_id,
-                           ip_address, direction=INGRESS):
+    def create_meter_label(self, context, label_id, tenant_id, ip_address,
+                           router_id, direction=INGRESS):
         LOG.debug("Creating meter label for IP "
-                  "%(ip_address)s in direction %(direction)s.",
+                  "%(ip_address)s in direction %(direction)s with "
+                  "relating router_id %(router_id)s .",
                   {'ip_address': ip_address,
+                   'router_id': router_id,
                    'direction': direction})
         name = "%s-%s" % (direction, label_id)
         description = "%s label for tenant %s." % (direction, tenant_id)
         param = {'metering_label': {'id': label_id, 'tenant_id': tenant_id,
                                     'name': name,
                                     'description': description,
-                                    'shared': False}}
+                                    'shared': False,
+                                    'router_id': router_id}}
+
         try:
             self.metering_plugin.create_metering_label(context, param)
         except Exception:
             LOG.exception(_LE("Unable to create meter label for "
-                              "IP %(ip_address)s "
-                              "in direction %(direction)s."),
+                              "IP %(ip_address)s in direction "
+                              "%(direction)s with relating router_id "
+                              "%(router_id)s."),
                           {'ip_address': ip_address,
+                           'router_id': router_id,
                            'direction': direction})
 
     def create_meter_rule(self, context, rule_id, label_id, tenant_id,
