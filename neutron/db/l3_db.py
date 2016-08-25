@@ -1252,12 +1252,13 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         with context.session.begin(subtransactions=True):
             floatingip_db = self._get_floatingip(context, id)
             old_floatingip = self._make_floatingip_dict(floatingip_db)
-            fip['tenant_id'] = floatingip_db['tenant_id']
-            fip['id'] = id
-            fip_port_id = floatingip_db['floating_port_id']
-            self._update_fip_assoc(context, fip, floatingip_db,
-                                   self._core_plugin.get_port(
-                                       context.elevated(), fip_port_id))
+            if fip:
+                fip['tenant_id'] = floatingip_db['tenant_id']
+                fip['id'] = id
+                fip_port_id = floatingip_db['floating_port_id']
+                self._update_fip_assoc(context, fip, floatingip_db,
+                                       self._core_plugin.get_port(
+                                           context.elevated(), fip_port_id))
             floatingip_dict = self._make_floatingip_dict(floatingip_db)
             if dns_integration:
                 dns_data = self._process_dns_floatingip_update_precommit(
