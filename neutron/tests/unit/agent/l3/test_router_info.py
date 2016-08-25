@@ -446,3 +446,27 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
             mock.sentinel.interface_name)
         self.assertEqual({}, fip_statuses)
         ri.remove_floating_ip.assert_called_once_with(device, '15.1.2.3/32')
+
+    def test_process_floating_ip_addresses_gw_secondary_ip_not_removed(
+            self, IPDevice):
+        IPDevice.return_value = device = mock.Mock()
+        device.addr.list.return_value = [{'cidr': '1.1.1.1/16'},
+                                         {'cidr': '2.2.2.2/32'},
+                                         {'cidr': '3.3.3.3/32'},
+                                         {'cidr': '4.4.4.4/32'}]
+        ri = self._create_router()
+        ri.process_ip_rate_limit = mock.Mock()
+
+        ri.get_floating_ips = mock.Mock(return_value=[
+            {'id': _uuid(),
+             'floating_ip_address': '3.3.3.3',
+             'status': 'DOWN',
+             'rate_limit': 1}])
+        ri.add_floating_ip = mock.Mock()
+        ri.get_ex_gw_port = mock.Mock(return_value={
+            "fixed_ips": [{"ip_address": "1.1.1.1"},
+                          {"ip_address": "2.2.2.2"}]})
+        ri.remove_floating_ip = mock.Mock()
+
+        ri.process_floating_ip_addresses("qg-fake-device")
+        ri.remove_floating_ip.assert_called_once_with(device, '4.4.4.4/32')
