@@ -273,6 +273,10 @@ class IptablesTable(object):
         for rule in rules:
             self.rules.remove(rule)
 
+    def chain_exists(self, chain_name, wrap=True):
+        chain_set = self._select_chain_set(wrap)
+        return chain_name in chain_set
+
 
 class IptablesManager(object):
     """Wrapper for iptables.
