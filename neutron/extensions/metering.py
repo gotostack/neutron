@@ -55,6 +55,10 @@ RESOURCE_ATTRIBUTE_MAP = {
                       'required_by_policy': True,
                       'validate': {'type:string': attr.TENANT_ID_MAX_LEN},
                       'is_visible': True},
+        'router_id': {'allow_post': True, 'allow_put': False,
+                      'is_visible': True,
+                      'validate': {'type:uuid_or_none': None},
+                      'default': None},
         'shared': {'allow_post': True, 'allow_put': False,
                    'is_visible': True, 'default': False,
                    'convert_to': attr.convert_to_boolean}

@@ -92,11 +92,13 @@ class L3_metering_db_mixin(base.BaseTestCase):
                                 '00_floatingip_id',
                                 'my_tenant_id',
                                 '8.8.8.8',
+                                'my_router_id',
                                 'ingress'),
                       mock.call(mock.ANY,
                                 '01_floatingip_id',
                                 'my_tenant_id',
                                 '8.8.8.8',
+                                'my_router_id',
                                 'egress')]
         self.db.create_meter_label.assert_has_calls(calls_list, any_order=True)
 
