@@ -368,7 +368,7 @@ class IptablesDriverTestCase(base.BaseTestCase):
                                     wrap=False),
                  mock.call.add_rule('neutron-meter-r-e27fe2df-376',
                                     '-i qg-6d411f48-ec '
-                                    '-s 50.0.0.0/24 '
+                                    '-d 50.0.0.0/24 '
                                     '-j neutron-meter-l-e27fe2df-376',
                                     top=False,
                                     wrap=False)
