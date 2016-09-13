@@ -5,7 +5,7 @@
 
 Name:           openstack-%{service}
 Version:        8.1.2
-Release:        11%{?dist}
+Release:        12%{?dist}
 Epoch:          1
 Summary:        OpenStack Networking Service
 
@@ -713,6 +713,11 @@ fi
 
 
 %changelog
+* Tue Sep 13 2016 LIU Yulong <liuyulong@le.com> - 1:8.1.2-12
+- l3 ha: don't send routers without '_ha_interface'
+- Handle deleted ports when creating a list of fdb entries
+- Get rid of unnecessary _ha_routers_present check
+
 * Wed Aug 31 2016 Wen Jian <wenjian@le.com> - 1:8.1.2-11
 - Adds support for Lbaas V3
 
