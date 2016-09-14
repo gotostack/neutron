@@ -51,7 +51,7 @@ class L3_metering_db_mixin(object):
         return manager.NeutronManager.get_service_plugins().get(cons.METERING)
 
     def _get_meter_id(self, raw_id, classfy):
-        return raw_id.replace(raw_id[:2], classfy)
+        return classfy + raw_id[2:]
 
     def _get_label_id_pair(self, raw_id):
         ingress_label_id = self._get_meter_id(raw_id, ING_LABEL)

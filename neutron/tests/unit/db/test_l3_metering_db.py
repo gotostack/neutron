@@ -25,7 +25,7 @@ from neutron.tests import base
 
 _uuid = uuidutils.generate_uuid
 
-ROUTER_1 = {'id': 'my_router_id',
+ROUTER_1 = {'id': 'ab_ab_router_id',
             'name': 'foo_router',
             'gw_port_id': 'my_gw_port_id',
             'tenant_id': 'my_tenant_id',
@@ -67,14 +67,14 @@ class L3_metering_db_mixin(base.BaseTestCase):
         self.assertEqual(2, self.db.create_meter_rule.call_count)
         calls_list = [mock.call(mock.ANY,
                                 '0f_port_id',
-                                '00_router_id',
+                                '00_ab_router_id',
                                 'my_tenant_id',
                                 '192.168.100.0/24',
                                 'ingress',
                                 False),
                       mock.call(mock.ANY,
                                 '0d_port_id',
-                                '01_router_id',
+                                '01_ab_router_id',
                                 'my_tenant_id',
                                 '192.168.100.0/24',
                                 'egress',
@@ -107,8 +107,8 @@ class L3_metering_db_mixin(base.BaseTestCase):
     def test_process_disable_gateway_meter(self, mock_plugins):
         self.db.delete_meter_label = mock.Mock()
         self.db.process_disable_gateway_meter(self.ctx, ROUTER_1['id'])
-        calls_list = [mock.call(mock.ANY, '00_router_id'),
-                      mock.call(mock.ANY, '01_router_id')]
+        calls_list = [mock.call(mock.ANY, '00_ab_router_id'),
+                      mock.call(mock.ANY, '01_ab_router_id')]
         self.db.delete_meter_label.assert_has_calls(calls_list, any_order=True)
 
     @mock.patch('neutron.manager.NeutronManager.get_service_plugins',
