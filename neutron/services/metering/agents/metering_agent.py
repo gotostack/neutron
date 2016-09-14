@@ -121,7 +121,8 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
                     'time': info['time'],
                     'first_update': info['first_update'],
                     'last_update': info['last_update'],
-                    'host': self.host}
+                    'host': self.host,
+                    'timestamp': info['timestamp']}
             data['measurements'] = self.make_measurement_data(
                 info['time'], info['pkts'], info['bytes'])
             if self.conf.enable_udp_publisher:
@@ -148,7 +149,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
                       'user_id': None,
                       'project_id': data['tenant_id'],
                       'resource_id': data['label_id'],
-                      'timestamp': data['last_update'],
+                      'timestamp': data['timestamp'],
                       'resource_metadata': data}
             samples.append(sample)
         return samples
@@ -200,6 +201,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         info['pkts'] += pkts
         info['time'] += ts - info['last_update']
         info['last_update'] = ts
+        info['timestamp'] = timeutils.utcnow().isoformat()
 
         self.metering_infos[label_id] = info
 
