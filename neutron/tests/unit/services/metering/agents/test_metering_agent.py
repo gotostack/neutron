@@ -250,10 +250,14 @@ class TestMeteringOperations(base.BaseTestCase):
         # 1 < 3 - 1 -> False
         self._test_purge_metering_info(3, True)
 
+    @mock.patch('datetime.datetime')
     @mock.patch('time.time')
     def _test_add_metering_info(self, expected_info, current_timestamp,
-                                mock_time):
+                                utcnow,
+                                mock_time,
+                                mock_utcnow):
         mock_time.return_value = current_timestamp
+        mock_utcnow.utcnow.return_value = utcnow
         actual_info = self.agent._add_metering_info('fake_label_id', 1, 1)
         self.assertEqual(1, len(self.agent.metering_infos))
         self.assertEqual(expected_info, actual_info)
@@ -262,17 +266,19 @@ class TestMeteringOperations(base.BaseTestCase):
         self.assertEqual(1, mock_time.call_count)
 
     def test_add_metering_info_create(self):
+        utcnow = timeutils.utcnow()
         expected_info = {'bytes': 1, 'pkts': 1, 'time': 0, 'first_update': 1,
-                         'last_update': 1}
-        self._test_add_metering_info(expected_info, 1)
+                         'last_update': 1, 'timestamp': utcnow.isoformat()}
+        self._test_add_metering_info(expected_info, 1, utcnow)
 
     def test_add_metering_info_update(self):
+        utcnow = timeutils.utcnow()
         expected_info = {'bytes': 1, 'pkts': 1, 'time': 0, 'first_update': 1,
-                         'last_update': 1}
+                         'last_update': 1, 'timestamp': utcnow.isoformat()}
         self.agent.metering_infos = {'fake_label_id': expected_info}
         expected_info.update({'bytes': 2, 'pkts': 2, 'time': 1,
                               'last_update': 2})
-        self._test_add_metering_info(expected_info, 2)
+        self._test_add_metering_info(expected_info, 2, utcnow)
 
 
 class TestMeteringDriver(base.BaseTestCase):
