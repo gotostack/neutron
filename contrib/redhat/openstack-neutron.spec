@@ -5,7 +5,7 @@
 
 Name:           openstack-%{service}
 Version:        8.1.2
-Release:        12%{?dist}
+Release:        13%{?dist}
 Epoch:          1
 Summary:        OpenStack Networking Service
 
@@ -713,6 +713,12 @@ fi
 
 
 %changelog
+* Tue Sep 20 2016 Gao Zhengwei <gaozhengwei1@le.com> - 1:8.1.2-13
+- Fix metering-agent iptables restore failure
+- Preventing iptables rule to be thrashed
+- Fixed error format of timestamp
+- Fixed error meter-label's id value used to monitor L3 bandwidth
+
 * Tue Sep 13 2016 LIU Yulong <liuyulong@le.com> - 1:8.1.2-12
 - l3 ha: don't send routers without '_ha_interface'
 - Handle deleted ports when creating a list of fdb entries
