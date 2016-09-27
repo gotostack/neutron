@@ -916,9 +916,12 @@ class RouterInfo(object):
         for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
             new_filters = set()
             for ip in ips:
-                filter_id = tc_wrapper.get_filter_id_for_ip(direction, ip)
-                if filter_id:
-                    new_filters.add(filter_id)
+                try:
+                    filter_id = tc_wrapper.get_filter_id_for_ip(direction, ip)
+                    if filter_id:
+                        new_filters.add(filter_id)
+                except tc_lib.FilterIDForIPNotFound:
+                    pass
             existed_filter_ids = set(
                 tc_wrapper.get_existed_filter_ids(direction))
             removed_filters = existed_filter_ids - new_filters

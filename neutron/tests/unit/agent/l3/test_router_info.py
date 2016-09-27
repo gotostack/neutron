@@ -16,6 +16,7 @@ from oslo_utils import uuidutils
 from neutron.agent.common import config as agent_config
 from neutron.agent.l3 import router_info
 from neutron.agent.linux import ip_lib
+from neutron.agent.linux import tc_lib
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
 from neutron.tests import base
@@ -470,3 +471,28 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
 
         ri.process_floating_ip_addresses("qg-fake-device")
         ri.remove_floating_ip.assert_called_once_with(device, '4.4.4.4/32')
+
+    def test__delete_stale_tc_rules_filter_not_found(self, IPDevice):
+        ex_gw_port_id = _uuid()
+        IPDevice.return_value = mock.Mock()
+        ri = self._create_router()
+        ri.get_external_device_name = mock.Mock()
+
+        tc_wrapper = mock.Mock()
+        ri._get_tc_wrapper = mock.Mock(return_value=tc_wrapper)
+        tc_wrapper.get_existed_filter_ids = mock.Mock(return_value=[])
+
+        ri.get_floating_ips = mock.Mock(return_value=[
+            {'id': _uuid(),
+             'floating_ip_address': '3.3.3.3',
+             'status': 'DOWN',
+             'rate_limit': 1}])
+        ri.gateway_ips = set(['1.1.1.1'])
+
+        with mock.patch.object(
+                tc_wrapper, 'get_filter_id_for_ip',
+                side_effect=tc_lib.FilterIDForIPNotFound(ip='fake_ip')):
+            ri._delete_stale_tc_rules(ex_gw_port_id)
+            tc_wrapper.delete_filter_ids.assert_has_calls(
+                [mock.call('ingress', set()),
+                 mock.call('egress', set())])
