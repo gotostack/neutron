@@ -5,7 +5,7 @@
 
 Name:           openstack-%{service}
 Version:        8.1.2
-Release:        13%{?dist}
+Release:        14%{?dist}
 Epoch:          1
 Summary:        OpenStack Networking Service
 
@@ -713,6 +713,14 @@ fi
 
 
 %changelog
+* Tue Sep 27 2016 LIU Yulong <liuyulong@le.com> - 1:8.1.2-14
+- Not do delete stale tc rules when no filter/qdisc existed
+- Fixes KeyError while updating bgp peer
+- Fix wrong HA router state
+- When deleting floating IP catch PortNotFound
+- Not auto schedule router when sync routers from agent
+- Catch FilterIDForIPNotFound while deleting stale tc rules
+
 * Tue Sep 20 2016 Gao Zhengwei <gaozhengwei1@le.com> - 1:8.1.2-13
 - Fix metering-agent iptables restore failure
 - Preventing iptables rule to be thrashed
