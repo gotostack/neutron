@@ -922,10 +922,10 @@ class RouterInfo(object):
                         new_filters.add(filter_id)
                 except tc_lib.FilterIDForIPNotFound:
                     pass
-            existed_filter_ids = set(
-                tc_wrapper.get_existed_filter_ids(direction))
-            removed_filters = existed_filter_ids - new_filters
-            tc_wrapper.delete_filter_ids(direction, removed_filters)
+            existed_filter_ids = tc_wrapper.get_existed_filter_ids(direction)
+            if existed_filter_ids:
+                removed_filters = set(existed_filter_ids) - new_filters
+                tc_wrapper.delete_filter_ids(direction, removed_filters)
 
     def process_external(self, agent):
         fip_statuses = {}

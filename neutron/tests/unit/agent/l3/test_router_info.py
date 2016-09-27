@@ -472,7 +472,8 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
         ri.process_floating_ip_addresses("qg-fake-device")
         ri.remove_floating_ip.assert_called_once_with(device, '4.4.4.4/32')
 
-    def test__delete_stale_tc_rules_filter_not_found(self, IPDevice):
+    def _test__delete_stale_tc_rules_filter(
+         self, IPDevice, existed_filter_ids):
         ex_gw_port_id = _uuid()
         IPDevice.return_value = mock.Mock()
         ri = self._create_router()
@@ -480,7 +481,8 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
 
         tc_wrapper = mock.Mock()
         ri._get_tc_wrapper = mock.Mock(return_value=tc_wrapper)
-        tc_wrapper.get_existed_filter_ids = mock.Mock(return_value=[])
+        tc_wrapper.get_existed_filter_ids = mock.Mock(
+            return_value=existed_filter_ids)
 
         ri.get_floating_ips = mock.Mock(return_value=[
             {'id': _uuid(),
@@ -493,6 +495,16 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
                 tc_wrapper, 'get_filter_id_for_ip',
                 side_effect=tc_lib.FilterIDForIPNotFound(ip='fake_ip')):
             ri._delete_stale_tc_rules(ex_gw_port_id)
-            tc_wrapper.delete_filter_ids.assert_has_calls(
-                [mock.call('ingress', set()),
-                 mock.call('egress', set())])
+            if existed_filter_ids:
+                tc_wrapper.delete_filter_ids.assert_has_calls(
+                    [mock.call('ingress', set(existed_filter_ids)),
+                     mock.call('egress', set(existed_filter_ids))])
+
+    def test__delete_stale_tc_rules_filter_not_found(self, IPDevice):
+        self._test__delete_stale_tc_rules_filter(IPDevice, ['fake_id'])
+
+    def test__delete_stale_tc_rules_filter_no_qdisc(self, IPDevice):
+        self._test__delete_stale_tc_rules_filter(IPDevice, None)
+
+    def test__delete_stale_tc_rules_filter_no_filter(self, IPDevice):
+        self._test__delete_stale_tc_rules_filter(IPDevice, [])
