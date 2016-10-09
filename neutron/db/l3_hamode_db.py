@@ -74,7 +74,11 @@ L3_HA_OPTS = [
                       "is not the default one.")),
     cfg.StrOpt('l3_ha_network_physical_name', default='',
                help=_("The physical network name with which the HA network "
-                      "can be created."))
+                      "can be created.")),
+    cfg.BoolOpt('delete_ha_network',
+                default=False,
+                help=_("Whether delete tenant HA network when "
+                       "no remain HA router."))
 ]
 cfg.CONF.register_opts(L3_HA_OPTS)
 
@@ -569,8 +573,9 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
                     context, ha_network, router_db.extra_attributes.ha_vr_id)
                 self._delete_ha_interfaces(context, router_db.id)
 
-                # always attempt to cleanup the network as the router is
-                # deleted. the core plugin will stop us if its in use
+                if not cfg.CONF.delete_ha_network:
+                    return
+
                 try:
                     self._delete_ha_network(context, ha_network)
                 except (n_exc.NetworkNotFound,

@@ -60,6 +60,7 @@ class L3HATestFramework(testlib_api.SqlTestCase):
                                     '_notify_ha_interfaces_updated')
         self.notif_m = notif_p.start()
         cfg.CONF.set_override('allow_overlapping_ips', True)
+        cfg.CONF.set_override('delete_ha_network', True)
 
         self.plugin = FakeL3PluginWithAgents()
         self.plugin.router_scheduler = l3_agent_scheduler.ChanceScheduler()
