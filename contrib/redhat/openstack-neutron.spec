@@ -5,7 +5,7 @@
 
 Name:           openstack-%{service}
 Version:        8.1.2
-Release:        14%{?dist}
+Release:        15%{?dist}
 Epoch:          1
 Summary:        OpenStack Networking Service
 
@@ -713,6 +713,11 @@ fi
 
 
 %changelog
+* Mon Oct 10 2016 LIU Yulong <liuyulong@le.com> - 1:8.1.2-15
+- Pass not IPDevice but port_name into OVSBridge's add_port()
+- New option for num_threads for state change server
+- Add config for delete last ha router with ha network
+
 * Tue Sep 27 2016 LIU Yulong <liuyulong@le.com> - 1:8.1.2-14
 - Not do delete stale tc rules when no filter/qdisc existed
 - Fixes KeyError while updating bgp peer
