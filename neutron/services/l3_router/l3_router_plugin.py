@@ -31,6 +31,7 @@ from neutron.db import l3_db
 from neutron.db import l3_dvr_ha_scheduler_db
 from neutron.db import l3_dvrscheduler_db
 from neutron.db import l3_hamode_db
+from neutron.db import l3_hascheduler_db
 from neutron.db import portforwardings_db
 from neutron.plugins.common import constants
 from neutron.quota import resource_registry
@@ -72,6 +73,8 @@ class L3RouterPlugin(service_base.ServicePluginBase,
         super(L3RouterPlugin, self).__init__()
         if 'dvr' in self.supported_extension_aliases:
             l3_dvrscheduler_db.subscribe()
+        if 'l3-ha' in self.supported_extension_aliases:
+            l3_hascheduler_db.subscribe()
         l3_db.subscribe()
         self.start_rpc_listeners()
 
