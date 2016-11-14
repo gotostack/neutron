@@ -5,7 +5,7 @@
 
 Name:           openstack-%{service}
 Version:        8.1.2
-Release:        15%{?dist}
+Release:        16%{?dist}
 Epoch:          1
 Summary:        OpenStack Networking Service
 
@@ -713,6 +713,12 @@ fi
 
 
 %changelog
+* Mon Nov 14 2016 LIU Yulong <liuyulong@le.com> - 1:8.1.2-16
+- Avoid trace in _notify_l3_agent_ha_port_update
+- l2pop fdb flows for HA router ports
+- Check for ha port to become ACTIVE
+- Suppresses a warning when no agents are configured
+
 * Mon Oct 10 2016 LIU Yulong <liuyulong@le.com> - 1:8.1.2-15
 - Pass not IPDevice but port_name into OVSBridge's add_port()
 - New option for num_threads for state change server
