@@ -40,6 +40,7 @@ from neutron.db import common_db_mixin
 from neutron.db import db_base_plugin_v2
 from neutron.db import dns_db
 from neutron.db import external_net_db
+from neutron.db import fip_rate_limit_db
 from neutron.db import l3_agentschedulers_db
 from neutron.db import l3_attrs_db
 from neutron.db import l3_db
@@ -225,6 +226,32 @@ class L3NatExtensionTestCase(test_extensions_base.ExtensionTestCase):
         self.assertEqual(port_id, res['port_id'])
         self.assertEqual(subnet_id, res['subnet_id'])
 
+    def test_router_add_portforwarding(self):
+        router_id = _uuid()
+
+        portforwarding = {"inside_addr": "10.0.12.13",
+                          "protocol": "TCP",
+                          "outside_port": 22,
+                          "inside_port": 22}
+        return_value = copy.deepcopy(portforwarding)
+
+        instance = self.plugin.return_value
+        instance.add_router_portforwarding.return_value = return_value
+
+        path = _get_path('routers', id=router_id,
+                         action="add_router_portforwarding",
+                         fmt=self.fmt)
+        res = self.api.put(path, self.serialize(portforwarding))
+
+        instance.add_router_portforwarding.assert_called_with(mock.ANY,
+                                                              router_id,
+                                                              portforwarding)
+        self.assertEqual(exc.HTTPOk.code, res.status_int)
+        res = self.deserialize(res)
+        self.assertIn('protocol', res)
+        self.assertEqual(res['outside_port'], 22)
+        self.assertEqual(res['inside_port'], 22)
+
 
 # This base plugin class is for tests.
 class TestL3NatBasePlugin(db_base_plugin_v2.NeutronDbPluginV2,
@@ -267,9 +294,11 @@ class TestL3NatBasePlugin(db_base_plugin_v2.NeutronDbPluginV2,
 
 # This plugin class is for tests with plugin that integrates L3.
 class TestL3NatIntPlugin(TestL3NatBasePlugin,
-                         l3_db.L3_NAT_db_mixin, dns_db.DNSDbMixin):
+                         l3_db.L3_NAT_db_mixin, dns_db.DNSDbMixin,
+                         fip_rate_limit_db.FloatingIPRatelimitDbMixin):
 
-    supported_extension_aliases = ["external-net", "router", "dns-integration"]
+    supported_extension_aliases = ["external-net", "router", "dns-integration",
+                                   "fip-rate-limit"]
 
 
 # This plugin class is for tests with plugin that integrates L3 and L3 agent
@@ -297,9 +326,11 @@ class TestNoL3NatPlugin(TestL3NatBasePlugin):
 # delegate away L3 routing functionality
 class TestL3NatServicePlugin(common_db_mixin.CommonDbMixin,
                              l3_dvr_db.L3_NAT_with_dvr_db_mixin,
-                             l3_db.L3_NAT_db_mixin, dns_db.DNSDbMixin):
+                             l3_db.L3_NAT_db_mixin, dns_db.DNSDbMixin,
+                             fip_rate_limit_db.FloatingIPRatelimitDbMixin):
 
-    supported_extension_aliases = ["router", "dns-integration"]
+    supported_extension_aliases = ["router", "dns-integration",
+                                   "fip-rate-limit"]
 
     def get_plugin_type(self):
         return service_constants.L3_ROUTER_NAT
@@ -333,7 +364,7 @@ class L3NatTestCaseMixin(object):
         data = {'router': {'tenant_id': tenant_id}}
         if name:
             data['router']['name'] = name
-        if admin_state_up:
+        if admin_state_up is not None:
             data['router']['admin_state_up'] = admin_state_up
         for arg in (('admin_state_up', 'tenant_id', 'availability_zone_hints')
                     + (arg_list or ())):
@@ -362,13 +393,17 @@ class L3NatTestCaseMixin(object):
 
     def _add_external_gateway_to_router(self, router_id, network_id,
                                         expected_code=exc.HTTPOk.code,
-                                        neutron_context=None, ext_ips=None):
+                                        neutron_context=None, ext_ips=None,
+                                        rate_limit=None):
         ext_ips = ext_ips or []
         body = {'router':
                 {'external_gateway_info': {'network_id': network_id}}}
         if ext_ips:
             body['router']['external_gateway_info'][
                 'external_fixed_ips'] = ext_ips
+        if rate_limit is not None:
+            body['router']['external_gateway_info'][
+                'rate_limit'] = rate_limit
         return self._update('routers', router_id, body,
                             expected_code=expected_code,
                             neutron_context=neutron_context)
@@ -422,9 +457,10 @@ class L3NatTestCaseMixin(object):
     def _create_floatingip(self, fmt, network_id, port_id=None,
                            fixed_ip=None, set_context=False,
                            floating_ip=None, subnet_id=False,
-                           tenant_id=None):
+                           tenant_id=None, rate_limit=None):
         tenant_id = tenant_id or self._tenant_id
-        data = {'floatingip': {'floating_network_id': network_id,
+        data = {'floatingip': {'name': 'fip',
+                               'floating_network_id': network_id,
                                'tenant_id': tenant_id}}
         if port_id:
             data['floatingip']['port_id'] = port_id
@@ -436,6 +472,8 @@ class L3NatTestCaseMixin(object):
 
         if subnet_id:
             data['floatingip']['subnet_id'] = subnet_id
+        if rate_limit is not None:
+            data['floatingip']['rate_limit'] = rate_limit
         floatingip_req = self.new_create_request('floatingips', data, fmt)
         if set_context and tenant_id:
             # create a specific auth context for this request
@@ -445,10 +483,12 @@ class L3NatTestCaseMixin(object):
 
     def _make_floatingip(self, fmt, network_id, port_id=None,
                          fixed_ip=None, set_context=False, tenant_id=None,
-                         floating_ip=None, http_status=exc.HTTPCreated.code):
+                         floating_ip=None, rate_limit=None,
+                         http_status=exc.HTTPCreated.code):
         res = self._create_floatingip(fmt, network_id, port_id,
                                       fixed_ip, set_context, floating_ip,
-                                      tenant_id=tenant_id)
+                                      tenant_id=tenant_id,
+                                      rate_limit=rate_limit)
         self.assertEqual(http_status, res.status_int)
         return self.deserialize(fmt, res)
 
@@ -2041,6 +2081,19 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                 self.assertEqual(ip_address,
                                  body['floatingip']['fixed_ip_address'])
 
+    def test_floatingip_update_name(self):
+        with self.port() as p:
+            private_sub = {'subnet': {'id':
+                                      p['port']['fixed_ips'][0]['subnet_id']}}
+            with self.floatingip_no_assoc(private_sub) as fip:
+                body = self._show('floatingips', fip['floatingip']['id'])
+                self.assertEqual(body['floatingip']['name'], "fip")
+
+                new_name = "new-fip-name"
+                body = self._update('floatingips', fip['floatingip']['id'],
+                                    {'floatingip': {'name': new_name}})
+                self.assertEqual(body['floatingip']['name'], new_name)
+
     def test_floatingip_create_different_fixed_ip_same_port(self):
         '''This tests that it is possible to delete a port that has
         multiple floating ip addresses associated with it (each floating
@@ -2121,6 +2174,68 @@ class L3NatTestCaseBase(L3NatTestCaseMixin):
                                      body_2['floatingip']['port_id'])
                     self.assertEqual(str(ip_range[-2]),
                                      body_2['floatingip']['fixed_ip_address'])
+
+    def test_floatingip_update_empty_dict_scenarios(
+        self, expected_status=l3_constants.FLOATINGIP_STATUS_ACTIVE):
+        with self.port() as p:
+            private_sub = {'subnet': {'id':
+                                      p['port']['fixed_ips'][0]['subnet_id']}}
+            with self.floatingip_no_assoc(private_sub) as fip:
+                body = self._show('floatingips', fip['floatingip']['id'])
+                self.assertIsNone(body['floatingip']['port_id'])
+                self.assertIsNone(body['floatingip']['fixed_ip_address'])
+                self.assertEqual(expected_status, body['floatingip']['status'])
+
+                # 1. Update floating IP without port_id (before associate)
+                body = self._update('floatingips', fip['floatingip']['id'],
+                                    {'floatingip': {}})
+                self.assertIsNone(body['floatingip']['port_id'])
+                self.assertIsNone(body['floatingip']['fixed_ip_address'])
+
+                port_id = p['port']['id']
+                ip_address = p['port']['fixed_ips'][0]['ip_address']
+                # 2. Update floating IP with port_id (associate)
+                body = self._update('floatingips', fip['floatingip']['id'],
+                                    {'floatingip': {'port_id': port_id}})
+                self.assertEqual(port_id, body['floatingip']['port_id'])
+                self.assertEqual(ip_address,
+                                 body['floatingip']['fixed_ip_address'])
+
+                # 3. Update floating IP without port_id
+                body = self._update('floatingips', fip['floatingip']['id'],
+                                    {'floatingip': {}})
+                # No errors, and nothing changed
+                self.assertEqual(port_id, body['floatingip']['port_id'])
+                self.assertEqual(ip_address,
+                                 body['floatingip']['fixed_ip_address'])
+
+    def test_floatingip_update_same_port_id_twice(
+        self, expected_status=l3_constants.FLOATINGIP_STATUS_ACTIVE):
+        with self.port() as p:
+            private_sub = {'subnet': {'id':
+                                      p['port']['fixed_ips'][0]['subnet_id']}}
+            with self.floatingip_no_assoc(private_sub) as fip:
+                body = self._show('floatingips', fip['floatingip']['id'])
+                self.assertIsNone(body['floatingip']['port_id'])
+                self.assertIsNone(body['floatingip']['fixed_ip_address'])
+                self.assertEqual(expected_status, body['floatingip']['status'])
+
+                port_id = p['port']['id']
+                ip_address = p['port']['fixed_ips'][0]['ip_address']
+                # 1. Update floating IP with port_id (associate)
+                body = self._update('floatingips', fip['floatingip']['id'],
+                                    {'floatingip': {'port_id': port_id}})
+                self.assertEqual(port_id, body['floatingip']['port_id'])
+                self.assertEqual(ip_address,
+                                 body['floatingip']['fixed_ip_address'])
+
+                # 2. Update floating IP with same port again
+                body = self._update('floatingips', fip['floatingip']['id'],
+                                    {'floatingip': {'port_id': port_id}})
+                # No errors, and nothing changed
+                self.assertEqual(port_id, body['floatingip']['port_id'])
+                self.assertEqual(ip_address,
+                                 body['floatingip']['fixed_ip_address'])
 
     def test_first_floatingip_associate_notification(self):
         with self.port() as p:

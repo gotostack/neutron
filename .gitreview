@@ -1,5 +1,5 @@
 [gerrit]
-host=review.openstack.org
+host=gerrit.letv.cn
 port=29418
-project=openstack/neutron.git
-defaultbranch=stable/mitaka
+project=iaas/openstack/neutron.git
+defaultbranch=mitaka

@@ -35,7 +35,6 @@ from neutron.db import api as db_api
 from neutron.db.availability_zone import router as router_az_db
 from neutron.db import common_db_mixin
 from neutron.db import l3_attrs_db
-from neutron.db import l3_db
 from neutron.db import l3_dvr_db
 from neutron.db import model_base
 from neutron.db import models_v2
@@ -76,7 +75,11 @@ L3_HA_OPTS = [
                       "is not the default one.")),
     cfg.StrOpt('l3_ha_network_physical_name', default='',
                help=_("The physical network name with which the HA network "
-                      "can be created."))
+                      "can be created.")),
+    cfg.BoolOpt('delete_ha_network',
+                default=False,
+                help=_("Whether delete tenant HA network when "
+                       "no remain HA router."))
 ]
 cfg.CONF.register_opts(L3_HA_OPTS)
 
@@ -559,17 +562,6 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
         admin_ctx = context.elevated()
         self._core_plugin.delete_network(admin_ctx, net.network_id)
 
-    def _ha_routers_present(self, context, tenant_id):
-        ha = True
-        routers = context.session.query(l3_db.Router).filter(
-            l3_db.Router.tenant_id == tenant_id).subquery()
-        ha_routers = context.session.query(
-            l3_attrs_db.RouterExtraAttributes).join(
-            routers,
-            l3_attrs_db.RouterExtraAttributes.router_id == routers.c.id
-        ).filter(l3_attrs_db.RouterExtraAttributes.ha == ha).first()
-        return ha_routers is not None
-
     def delete_router(self, context, id):
         router_db = self._get_router(context, id)
         super(L3_HA_NAT_db_mixin, self).delete_router(context, id)
@@ -582,30 +574,29 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
                     context, ha_network, router_db.extra_attributes.ha_vr_id)
                 self._delete_ha_interfaces(context, router_db.id)
 
-                # In case that create HA router failed because of the failure
-                # in HA network creation. So here put this deleting HA network
-                # procedure under 'if ha_network' block.
-                if not self._ha_routers_present(context,
-                                                router_db.tenant_id):
-                    try:
-                        self._delete_ha_network(context, ha_network)
-                    except (n_exc.NetworkNotFound,
-                            orm.exc.ObjectDeletedError):
-                        LOG.debug(
-                            "HA network for tenant %s was already deleted.",
-                            router_db.tenant_id)
-                    except sa.exc.InvalidRequestError:
-                        LOG.info(_LI("HA network %s can not be deleted."),
-                                 ha_network.network_id)
-                    except n_exc.NetworkInUse:
-                        LOG.debug("HA network %s is still in use.",
-                                  ha_network.network_id)
-                    else:
-                        LOG.info(_LI("HA network %(network)s was deleted as "
-                                     "no HA routers are present in tenant "
-                                     "%(tenant)s."),
-                                 {'network': ha_network.network_id,
-                                  'tenant': router_db.tenant_id})
+                if not cfg.CONF.delete_ha_network:
+                    return
+
+                try:
+                    self._delete_ha_network(context, ha_network)
+                except (n_exc.NetworkNotFound,
+                        orm.exc.ObjectDeletedError):
+                    LOG.debug(
+                        "HA network for tenant %s was already deleted.",
+                        router_db.tenant_id)
+                except sa.exc.InvalidRequestError:
+                    LOG.info(_LI("HA network %s can not be deleted."),
+                             ha_network.network_id)
+                except n_exc.NetworkInUse:
+                    # network is still in use, this is normal so we don't
+                    # log anything
+                    pass
+                else:
+                    LOG.info(_LI("HA network %(network)s was deleted as "
+                                 "no HA routers are present in tenant "
+                                 "%(tenant)s."),
+                             {'network': ha_network.network_id,
+                              'tenant': router_db.tenant_id})
 
     def _unbind_ha_router(self, context, router_id):
         for agent in self.get_l3_agents_hosting_routers(context, [router_id]):
@@ -677,7 +668,7 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             None)
 
     @log_helpers.log_method_call
-    def _process_sync_ha_data(self, context, routers, host):
+    def _process_sync_ha_data(self, context, routers, host, agent_mode):
         routers_dict = dict((router['id'], router) for router in routers)
 
         bindings = self.get_ha_router_port_bindings(context,
@@ -703,9 +694,12 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
             if interface:
                 self._populate_mtu_and_subnets_for_ports(context, [interface])
 
-        # Could not filter the HA_INTERFACE_KEY here, because a DVR router
-        # with SNAT HA in DVR compute host also does not have that attribute.
-        return list(routers_dict.values())
+        # If this is a DVR+HA router, but the agent is question is in 'dvr'
+        # mode (as opposed to 'dvr_snat'), then we want to always return it
+        # even though it's missing the '_ha_interface' key.
+        return [r for r in list(routers_dict.values())
+                if (agent_mode == constants.L3_AGENT_MODE_DVR or
+                    not r.get('ha') or r.get(constants.HA_INTERFACE_KEY))]
 
     @log_helpers.log_method_call
     def get_ha_sync_data_for_host(self, context, host, agent,
@@ -721,7 +715,7 @@ class L3_HA_NAT_db_mixin(l3_dvr_db.L3_NAT_with_dvr_db_mixin,
         else:
             sync_data = super(L3_HA_NAT_db_mixin, self).get_sync_data(context,
                                                             router_ids, active)
-        return self._process_sync_ha_data(context, sync_data, host)
+        return self._process_sync_ha_data(context, sync_data, host, agent_mode)
 
     @classmethod
     def _set_router_states(cls, context, bindings, states):

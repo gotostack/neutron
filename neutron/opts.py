@@ -33,10 +33,13 @@ import neutron.db.agents_db
 import neutron.db.agentschedulers_db
 import neutron.db.dvr_mac_db
 import neutron.db.extraroute_db
+import neutron.db.fip_rate_limit_db
+import neutron.db.gateway_rate_limit_db
 import neutron.db.l3_agentschedulers_db
 import neutron.db.l3_dvr_db
 import neutron.db.l3_gwmode_db
 import neutron.db.l3_hamode_db
+import neutron.db.l3_metering_db
 import neutron.db.migration.cli
 import neutron.extensions.allowedaddresspairs
 import neutron.extensions.l3
@@ -57,6 +60,8 @@ import neutron.plugins.ml2.drivers.type_vxlan
 import neutron.quota
 import neutron.service
 import neutron.services.metering.agents.metering_agent
+import neutron.services.metering.publisher.udp
+import neutron.services.metering.publisher.utils
 import neutron.services.qos.notification_drivers.manager
 import neutron.wsgi
 
@@ -114,11 +119,14 @@ def list_db_opts():
              neutron.db.agents_db.AGENT_OPTS,
              neutron.db.extraroute_db.extra_route_opts,
              neutron.db.l3_gwmode_db.OPTS,
+             neutron.db.l3_metering_db.OPTS,
              neutron.db.agentschedulers_db.AGENTS_SCHEDULER_OPTS,
              neutron.db.dvr_mac_db.dvr_mac_address_opts,
              neutron.db.l3_dvr_db.router_distributed_opts,
              neutron.db.l3_agentschedulers_db.L3_AGENTS_SCHEDULER_OPTS,
-             neutron.db.l3_hamode_db.L3_HA_OPTS)
+             neutron.db.l3_hamode_db.L3_HA_OPTS,
+             neutron.db.fip_rate_limit_db.fip_opts,
+             neutron.db.gateway_rate_limit_db.gateway_opts)
          ),
         ('database',
          neutron.db.migration.cli.get_engine_config())
@@ -231,7 +239,10 @@ def list_metering_agent_opts():
              neutron.services.metering.agents.metering_agent.MeteringAgent.
              Opts,
              neutron.agent.common.config.INTERFACE_DRIVER_OPTS)
-         )
+         ),
+        ('publisher',
+         itertools.chain(neutron.services.metering.publisher.udp.OPTS,
+             neutron.services.metering.publisher.utils.OPTS)),
     ]
 
 

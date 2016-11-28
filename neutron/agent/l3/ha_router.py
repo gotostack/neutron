@@ -272,8 +272,18 @@ class HaRouter(router.RouterInfo):
         self._add_vip(ip_cidr, interface_name)
         return n_consts.FLOATINGIP_STATUS_ACTIVE
 
+    def remove_fip_rate_limit(self, device, ip_cidr):
+        # To prevent delete TC rule for HA router multiple times
+        pass
+
     def remove_floating_ip(self, device, ip_cidr):
         self._remove_vip(ip_cidr)
+
+        # TC rule added to all agents that HA router was scheduled to,
+        # then need to remove TC rule in all l3 agent node.
+        fip_ip = ip_cidr[:ip_cidr.index('/')]
+        self._remove_fip_rate_limit(device, fip_ip)
+
         if self.ha_state == 'master' and device.addr.list(to=ip_cidr):
             # Delete the floatingip address from external port only after
             # the ip address has been configured to the device

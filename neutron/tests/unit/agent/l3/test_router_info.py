@@ -16,6 +16,7 @@ from oslo_utils import uuidutils
 from neutron.agent.common import config as agent_config
 from neutron.agent.l3 import router_info
 from neutron.agent.linux import ip_lib
+from neutron.agent.linux import tc_lib
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
 from neutron.tests import base
@@ -372,7 +373,8 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
             'id': fip_id, 'port_id': _uuid(),
             'floating_ip_address': '15.1.2.3',
             'fixed_ip_address': '192.168.0.2',
-            'status': l3_constants.FLOATINGIP_STATUS_DOWN
+            'status': l3_constants.FLOATINGIP_STATUS_DOWN,
+            'rate_limit': 1
         }
 
         IPDevice.return_value = device = mock.Mock()
@@ -380,6 +382,7 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
         ri = self._create_router()
         ri.get_floating_ips = mock.Mock(return_value=[fip])
 
+        ri.process_ip_rate_limit = mock.Mock()
         fip_statuses = ri.process_floating_ip_addresses(
             mock.sentinel.interface_name)
         self.assertEqual({fip_id: l3_constants.FLOATINGIP_STATUS_ACTIVE},
@@ -393,13 +396,15 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
         fip = {
             'id': fip_id, 'port_id': _uuid(),
             'floating_ip_address': '15.1.2.3',
-            'fixed_ip_address': '192.168.0.2'
+            'fixed_ip_address': '192.168.0.2',
+            'rate_limit': 1
         }
 
         ri = self._create_router()
         ri.floating_ips = [fip]
         ri.get_floating_ips = mock.Mock(return_value=[])
 
+        ri.process_ip_rate_limit = mock.Mock()
         fip_statuses = ri.process_floating_ip_addresses(
             mock.sentinel.interface_name)
 
@@ -413,13 +418,15 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
             'id': fip_id, 'port_id': _uuid(),
             'floating_ip_address': '15.1.2.3',
             'fixed_ip_address': '192.168.0.2',
-            'status': 'DOWN'
+            'status': 'DOWN',
+            'rate_limit': 1
         }
         ri = self._create_router()
         ri.add_floating_ip = mock.Mock(
             return_value=l3_constants.FLOATINGIP_STATUS_ERROR)
         ri.get_floating_ips = mock.Mock(return_value=[fip])
 
+        ri.process_ip_rate_limit = mock.Mock()
         fip_statuses = ri.process_floating_ip_addresses(
             mock.sentinel.interface_name)
 
@@ -435,6 +442,7 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
         ri.remove_floating_ip = mock.Mock()
         ri.router.get = mock.Mock(return_value=[])
 
+        ri.process_ip_rate_limit = mock.Mock()
         fip_statuses = ri.process_floating_ip_addresses(
             mock.sentinel.interface_name)
         self.assertEqual({}, fip_statuses)
@@ -449,12 +457,75 @@ class TestFloatingIpWithMockDevice(BasicRouterTestCaseFramework):
             'id': fip_id, 'port_id': _uuid(),
             'floating_ip_address': '15.1.2.3',
             'fixed_ip_address': '192.168.0.3',
-            'status': 'DOWN'
+            'status': 'DOWN',
+            'rate_limit': 1
         }
         ri = self._create_router()
         ri.get_floating_ips = mock.Mock(return_value=[fip])
         ri.move_floating_ip = mock.Mock()
         ri.fip_map = {'15.1.2.3': '192.168.0.2'}
 
+        ri.process_ip_rate_limit = mock.Mock()
         ri.process_floating_ip_addresses(mock.sentinel.interface_name)
         ri.move_floating_ip.assert_called_once_with(fip)
+
+    def test_process_floating_ip_addresses_gw_secondary_ip_not_removed(
+            self, IPDevice):
+        IPDevice.return_value = device = mock.Mock()
+        device.addr.list.return_value = [{'cidr': '1.1.1.1/16'},
+                                         {'cidr': '2.2.2.2/32'},
+                                         {'cidr': '3.3.3.3/32'},
+                                         {'cidr': '4.4.4.4/32'}]
+        ri = self._create_router()
+        ri.process_ip_rate_limit = mock.Mock()
+
+        ri.get_floating_ips = mock.Mock(return_value=[
+            {'id': _uuid(),
+             'floating_ip_address': '3.3.3.3',
+             'status': 'DOWN',
+             'rate_limit': 1}])
+        ri.add_floating_ip = mock.Mock()
+        ri.get_ex_gw_port = mock.Mock(return_value={
+            "fixed_ips": [{"ip_address": "1.1.1.1"},
+                          {"ip_address": "2.2.2.2"}]})
+        ri.remove_floating_ip = mock.Mock()
+
+        ri.process_floating_ip_addresses("qg-fake-device")
+        ri.remove_floating_ip.assert_called_once_with(device, '4.4.4.4/32')
+
+    def _test__delete_stale_tc_rules_filter(
+         self, IPDevice, existed_filter_ids):
+        ex_gw_port_id = _uuid()
+        IPDevice.return_value = mock.Mock()
+        ri = self._create_router()
+        ri.get_external_device_name = mock.Mock()
+
+        tc_wrapper = mock.Mock()
+        ri._get_tc_wrapper = mock.Mock(return_value=tc_wrapper)
+        tc_wrapper.get_existed_filter_ids = mock.Mock(
+            return_value=existed_filter_ids)
+
+        ri.get_floating_ips = mock.Mock(return_value=[
+            {'id': _uuid(),
+             'floating_ip_address': '3.3.3.3',
+             'status': 'DOWN',
+             'rate_limit': 1}])
+        ri.gateway_ips = set(['1.1.1.1'])
+
+        with mock.patch.object(
+                tc_wrapper, 'get_filter_id_for_ip',
+                side_effect=tc_lib.FilterIDForIPNotFound(ip='fake_ip')):
+            ri._delete_stale_tc_rules(ex_gw_port_id)
+            if existed_filter_ids:
+                tc_wrapper.delete_filter_ids.assert_has_calls(
+                    [mock.call('ingress', set(existed_filter_ids)),
+                     mock.call('egress', set(existed_filter_ids))])
+
+    def test__delete_stale_tc_rules_filter_not_found(self, IPDevice):
+        self._test__delete_stale_tc_rules_filter(IPDevice, ['fake_id'])
+
+    def test__delete_stale_tc_rules_filter_no_qdisc(self, IPDevice):
+        self._test__delete_stale_tc_rules_filter(IPDevice, None)
+
+    def test__delete_stale_tc_rules_filter_no_filter(self, IPDevice):
+        self._test__delete_stale_tc_rules_filter(IPDevice, [])

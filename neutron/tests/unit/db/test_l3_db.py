@@ -145,6 +145,35 @@ class TestL3_NAT_dbonly_mixin(base.BaseTestCase):
                           ({'id': 'id2'}, 'scope2'),
                           ({'id': 'id3'}, 'scope3')], result)
 
+    def _test_delete_floatingip(self, port_id=None):
+        fip = {'id': 'my_floatingip_id',
+               'floating_ip_address': '8.8.8.8',
+               'floating_network_id': 'ext_network_id',
+               'floating_port_id': 'my_floating_port_id',
+               'router_id': 'my_router_id',
+               'port_id': port_id,
+               'status': 'active'}
+        with mock.patch.object(manager.NeutronManager, 'get_plugin') as gp,\
+            mock.patch.object(l3_db.L3_NAT_dbonly_mixin, '_get_floatingip',
+                              return_value=mock.MagicMock()),\
+            mock.patch.object(l3_db.L3_NAT_dbonly_mixin,
+                              '_make_floatingip_dict', return_value=fip),\
+            mock.patch.object(l3_db.L3_NAT_dbonly_mixin,
+                              'process_disassociate_floatingip_meter') as pm:
+            gp.return_value.delete_port.return_value = mock.Mock()
+            self.db.delete_floatingip(mock.MagicMock(), mock.ANY)
+            if port_id:
+                self.assertTrue(pm.called)
+            else:
+                self.assertFalse(pm.called)
+
+    def test_delete_floatingip_associated_instance(self):
+        port_id = 'my_port_id'
+        self._test_delete_floatingip(port_id)
+
+    def test_delete_floatingip_disassociated_instance(self):
+        self._test_delete_floatingip()
+
     @mock.patch.object(manager.NeutronManager, 'get_plugin')
     def test_prevent_l3_port_deletion_port_not_found(self, gp):
         # port not found doesn't prevent

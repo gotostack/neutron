@@ -95,6 +95,8 @@ def prepare_router_data(ip_version=4, enable_snat=None, num_internal_ports=1,
                       'subnets': subnets,
                       'extra_subnets': extra_subnets}
 
+    external_gateway_info = {"rate_limit": kwargs.get('rate_limit', 0)}
+
     routes = []
     if extra_routes:
         routes = [{'destination': '8.8.8.0/24', 'nexthop': '19.4.4.4'}]
@@ -104,7 +106,9 @@ def prepare_router_data(ip_version=4, enable_snat=None, num_internal_ports=1,
         'distributed': False,
         l3_constants.INTERFACE_KEY: [],
         'routes': routes,
-        'gw_port': ex_gw_port}
+        'gw_port': ex_gw_port,
+        'external_gateway_info': external_gateway_info,
+        'portforwardings': []}
 
     if enable_floating_ip:
         router[l3_constants.FLOATINGIP_KEY] = [{
@@ -112,7 +116,8 @@ def prepare_router_data(ip_version=4, enable_snat=None, num_internal_ports=1,
             'port_id': _uuid(),
             'status': 'DOWN',
             'floating_ip_address': '19.4.4.2',
-            'fixed_ip_address': '10.0.0.1'}]
+            'fixed_ip_address': '10.0.0.1',
+            'rate_limit': 1}]
 
     router_append_interface(router, count=num_internal_ports,
                             ip_version=ip_version, dual_stack=dual_stack)

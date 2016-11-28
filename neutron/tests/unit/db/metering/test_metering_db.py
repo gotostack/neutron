@@ -40,6 +40,7 @@ class MeteringPluginDbTestCaseMixin(object):
                                    'tenant_id': kwargs.get('tenant_id',
                                                            'test-tenant'),
                                    'shared': kwargs.get('shared', False),
+                                   'router_id': kwargs.get('router_id', None),
                                    'description': description}}
         req = self.new_create_request('metering-labels', data,
                                       fmt)
@@ -152,6 +153,17 @@ class TestMetering(MeteringPluginDbTestCase):
                 ('shared', shared)]
         with self.metering_label(name, description,
                                  shared=shared) as metering_label:
+            for k, v, in keys:
+                self.assertEqual(metering_label['metering_label'][k], v)
+
+    def test_create_metering_label_relate_router(self):
+        name = 'my label'
+        description = 'my metering label'
+        router_id = 'e27fe2df-376e-4ac7-ae13-92f050a21f84'
+        keys = [('name', name,), ('description', description),
+                ('router_id', router_id)]
+        with self.metering_label(name, description,
+                                 router_id=router_id) as metering_label:
             for k, v, in keys:
                 self.assertEqual(metering_label['metering_label'][k], v)
 

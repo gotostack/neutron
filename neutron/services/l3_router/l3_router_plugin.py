@@ -25,12 +25,14 @@ from neutron.common import topics
 from neutron.db import common_db_mixin
 from neutron.db import dns_db
 from neutron.db import extraroute_db
+from neutron.db import fip_rate_limit_db
+from neutron.db import gateway_rate_limit_db
 from neutron.db import l3_db
 from neutron.db import l3_dvr_ha_scheduler_db
 from neutron.db import l3_dvrscheduler_db
-from neutron.db import l3_gwmode_db
 from neutron.db import l3_hamode_db
 from neutron.db import l3_hascheduler_db
+from neutron.db import portforwardings_db
 from neutron.plugins.common import constants
 from neutron.quota import resource_registry
 from neutron.services import service_base
@@ -40,9 +42,11 @@ class L3RouterPlugin(service_base.ServicePluginBase,
                      common_db_mixin.CommonDbMixin,
                      extraroute_db.ExtraRoute_db_mixin,
                      l3_hamode_db.L3_HA_NAT_db_mixin,
-                     l3_gwmode_db.L3_NAT_db_mixin,
+                     gateway_rate_limit_db.gateway_with_rate_limit_db_mixin,
                      l3_dvr_ha_scheduler_db.L3_DVR_HA_scheduler_db_mixin,
-                     dns_db.DNSDbMixin):
+                     dns_db.DNSDbMixin,
+                     fip_rate_limit_db.FloatingIPRatelimitDbMixin,
+                     portforwardings_db.PortForwardingDbMixin):
 
     """Implementation of the Neutron L3 Router Service Plugin.
 
@@ -54,8 +58,10 @@ class L3RouterPlugin(service_base.ServicePluginBase,
     l3_dvr_db.L3_NAT_with_dvr_db_mixin, and extraroute_db.ExtraRoute_db_mixin.
     """
     supported_extension_aliases = ["dvr", "router", "ext-gw-mode",
+                                   "gateway-rate-limit",
                                    "extraroute", "l3_agent_scheduler",
-                                   "l3-ha", "router_availability_zone"]
+                                   "l3-ha", "router_availability_zone",
+                                   "fip-rate-limit", "portforwarding"]
 
     @resource_registry.tracked_resources(router=l3_db.Router,
                                          floatingip=l3_db.FloatingIP)

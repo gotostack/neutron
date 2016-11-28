@@ -20,6 +20,7 @@ from neutron.agent.l3 import dvr_snat_ns
 from neutron.agent.l3 import router_info as router
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import iptables_manager
+from neutron.agent.linux import tc_lib
 from neutron.common import constants as l3_constants
 
 LOG = logging.getLogger(__name__)
@@ -85,6 +86,14 @@ class DvrEdgeRouter(dvr_local_router.DvrLocalRouter):
                            bridge=self.agent_conf.external_network_bridge,
                            namespace=self.snat_namespace.name,
                            prefix=router.EXTERNAL_DEV_PREFIX)
+
+    def _empty_router_gateway_rate_limits(self, tc_wrapper):
+        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+            tc_wrapper.clear_all_filters(direction)
+
+    def _set_gateway_ip_rate_limit(self, tc_wrapper, ex_gw_ip, rate):
+        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+            tc_wrapper.set_ip_rate_limit(direction, ex_gw_ip, rate)
 
     def external_gateway_removed(self, ex_gw_port, interface_name):
         self._external_gateway_removed(ex_gw_port, interface_name)
@@ -159,6 +168,14 @@ class DvrEdgeRouter(dvr_local_router.DvrLocalRouter):
         # kicks the FW Agent to add rules for the snat namespace
         self.agent.process_router_add(self)
 
+    def _get_tc_handle_ips(self):
+        pass
+
+    def _delete_stale_tc_rules(self, ex_gw_port_id):
+        # Dvr edge router clean all gateway IPs' tc rules everytime,
+        # so it has no stale rule.
+        pass
+
     def _create_snat_namespace(self):
         # TODO(mlavalle): in the near future, this method should contain the
         # code in the L3 agent that creates a gateway for a dvr. The first step
@@ -176,6 +193,36 @@ class DvrEdgeRouter(dvr_local_router.DvrLocalRouter):
             LOG.debug("gw_port_host missing from router: %s",
                       self.router['id'])
         return host == self.host
+
+    def _get_gateway_tc_rule_device(self, interface_name):
+        return ip_lib.IPDevice(interface_name,
+                               namespace=self.snat_namespace.name)
+
+    def _handle_router_gateway_rate_limit(self, ex_gw_port, interface_name):
+        if not self._is_this_snat_host():
+            return
+        if not self.get_ex_gw_port():
+            return
+
+        if not self.snat_namespace:
+            LOG.debug("DVR router: snat namespace not existed.")
+            return
+
+        self._add_gateway_tc_rules(ex_gw_port, interface_name)
+
+    def _handle_router_gateway_port_forwardings(self, ex_gw_port):
+        if not self._is_this_snat_host():
+            return
+        if not self.get_ex_gw_port():
+            return
+
+        if not self.snat_namespace:
+            LOG.debug("DVR router: snat namespace not existed.")
+            return
+
+        with self.snat_iptables_manager.defer_apply():
+            self._handle_router_gateway_port_forwarding_rules(
+                ex_gw_port, self.snat_iptables_manager)
 
     def _handle_router_snat_rules(self, ex_gw_port, interface_name):
         super(DvrEdgeRouter, self)._handle_router_snat_rules(

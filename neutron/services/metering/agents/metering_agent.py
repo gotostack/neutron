@@ -13,6 +13,7 @@
 # under the License.
 
 import sys
+import uuid
 
 from oslo_config import cfg
 from oslo_log import log as logging
@@ -34,9 +35,13 @@ from neutron.common import utils
 from neutron import context
 from neutron import manager
 from neutron import service as neutron_service
+from neutron.services.metering.publisher import udp
 
 
 LOG = logging.getLogger(__name__)
+TYPE_GAUGE = 'gauge'
+TYPE_DELTA = 'delta'
+TYPE_CUMULATIVE = 'cumulative'
 
 
 class MeteringPluginRpc(object):
@@ -71,6 +76,12 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
                    help=_("Interval between two metering measures")),
         cfg.IntOpt('report_interval', default=300,
                    help=_("Interval between two metering reports")),
+        cfg.BoolOpt('enable_udp_publisher', default=False,
+                   help=_("Method of transport sample,"
+                          "default method is notify")),
+        cfg.StrOpt('sample_source',
+                   default='openstack',
+                   help=_("Source for samples emitted on this instance.")),
     ]
 
     def __init__(self, host, conf=None):
@@ -88,6 +99,9 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         self.label_tenant_id = {}
         self.routers = {}
         self.metering_infos = {}
+
+        if self.conf.enable_udp_publisher:
+            self.publisher = udp.UDPPublisher()
         super(MeteringAgent, self).__init__(host=host)
 
     def _load_drivers(self):
@@ -107,14 +121,65 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
                     'time': info['time'],
                     'first_update': info['first_update'],
                     'last_update': info['last_update'],
-                    'host': self.host}
-
-            LOG.debug("Send metering report: %s", data)
-            notifier = n_rpc.get_notifier('metering')
-            notifier.info(self.context, 'l3.meter', data)
+                    'host': self.host,
+                    'timestamp': info['timestamp']}
+            data['measurements'] = self.make_measurement_data(
+                info['time'], info['pkts'], info['bytes'])
+            if self.conf.enable_udp_publisher:
+                samples = self._meter_samples_from_data(data)
+                self.publisher.publish_samples(self.context, samples)
+            else:
+                LOG.debug("Send metering report: %s", data)
+                notifier = n_rpc.get_notifier('metering')
+                notifier.info(self.context, 'l3.meter', data)
             info['pkts'] = 0
             info['bytes'] = 0
             info['time'] = 0
+
+    def _meter_samples_from_data(self, data):
+        measurements = data.pop('measurements', [])
+        samples = []
+        for m in measurements:
+            sample = {'id': str(uuid.uuid1()),
+                      'name': m['metric']['name'],
+                      'type': m['metric']['type'],
+                      'unit': m['metric']['unit'],
+                      'volume': m['volume'],
+                      'source': self.conf.sample_source,
+                      'user_id': None,
+                      'project_id': data['tenant_id'],
+                      'resource_id': data['label_id'],
+                      'timestamp': data['timestamp'],
+                      'resource_metadata': data}
+            samples.append(sample)
+        return samples
+
+    def make_measurement_data(self, time, packets, bytes):
+        byte_cumulative_metric = dict(name='network.l3.bytes',
+                                      type=TYPE_CUMULATIVE,
+                                      unit='B')
+        packet_cumulative_metric = dict(name='network.l3.packets',
+                                        type=TYPE_CUMULATIVE,
+                                        unit='packet')
+        measurements = [dict(metric=byte_cumulative_metric,
+                             volume=bytes),
+                        dict(metric=packet_cumulative_metric,
+                             volume=packets)]
+
+        # Avoid time equal to zero.
+        if time:
+            byte_rate_metric = dict(name='network.l3.bytes.rate',
+                                    type=TYPE_GAUGE,
+                                    unit='B/s')
+            packet_rate_metric = dict(name='network.l3.packets.rate',
+                                      type=TYPE_GAUGE,
+                                      unit='packet/s')
+
+            measurements.append(dict(metric=byte_rate_metric,
+                                     volume=(bytes / time)))
+            measurements.append(dict(metric=packet_rate_metric,
+                                     volume=(packets / time)))
+        return measurements
 
     def _purge_metering_info(self):
         deadline_timestamp = timeutils.utcnow_ts() - self.conf.report_interval
@@ -136,6 +201,7 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
         info['pkts'] += pkts
         info['time'] += ts - info['last_update']
         info['last_update'] = ts
+        info['timestamp'] = timeutils.utcnow().isoformat()
 
         self.metering_infos[label_id] = info
 
@@ -186,6 +252,14 @@ class MeteringAgent(MeteringPluginRpc, manager.Manager):
     @periodic_task.periodic_task(run_immediately=True)
     def _sync_routers_task(self, context):
         routers = self._get_sync_data_metering(self.context)
+
+        routers_on_agent = set(self.routers.keys())
+        routers_on_server = set(
+            [router['id'] for router in routers] if routers else [])
+        for router_id in routers_on_agent - routers_on_server:
+            del self.routers[router_id]
+            self._invoke_driver(context, router_id, 'remove_router')
+
         if not routers:
             return
         self._update_routers(context, routers)

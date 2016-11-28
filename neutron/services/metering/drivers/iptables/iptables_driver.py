@@ -177,9 +177,9 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
     def _prepare_rule(self, ext_dev, rule, label_chain):
         remote_ip = rule['remote_ip_prefix']
         if rule['direction'] == 'egress':
-            dir_opt = '-o %s -d %s' % (ext_dev, remote_ip)
+            dir_opt = '-s %s -o %s' % (remote_ip, ext_dev)
         else:
-            dir_opt = '-i %s -s %s' % (ext_dev, remote_ip)
+            dir_opt = '-d %s -i %s' % (remote_ip, ext_dev)
 
         if rule['excluded']:
             ipt_rule = '%s -j RETURN' % dir_opt
@@ -199,21 +199,11 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
                 label_chain = iptables_manager.get_chain_name(WRAP_NAME +
                                                               LABEL + label_id,
                                                               wrap=False)
-                rm.iptables_manager.ipv4['filter'].add_chain(label_chain,
-                                                             wrap=False)
 
                 rules_chain = iptables_manager.get_chain_name(WRAP_NAME +
                                                               RULE + label_id,
                                                               wrap=False)
-                rm.iptables_manager.ipv4['filter'].add_chain(rules_chain,
-                                                             wrap=False)
-                rm.iptables_manager.ipv4['filter'].add_rule(TOP_CHAIN, '-j ' +
-                                                            rules_chain,
-                                                            wrap=False)
-
-                rm.iptables_manager.ipv4['filter'].add_rule(label_chain,
-                                                            '',
-                                                            wrap=False)
+                self._create_metering_label_chain(rm, label_chain, rules_chain)
 
                 rules = label.get('rules')
                 if rules:
@@ -275,6 +265,17 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
     def _remove_metering_label_rule(self, router):
         self._process_metering_rule_action(router, 'delete')
 
+    def _create_metering_label_chain(self, rm, label_chain, rules_chain):
+        rm.iptables_manager.ipv4['filter'].add_chain(label_chain, wrap=False)
+        rm.iptables_manager.ipv4['filter'].add_chain(rules_chain, wrap=False)
+        rm.iptables_manager.ipv4['filter'].add_rule(TOP_CHAIN,
+                                                    '-j ' +
+                                                    rules_chain,
+                                                    wrap=False)
+        rm.iptables_manager.ipv4['filter'].add_rule(label_chain,
+                                                    '',
+                                                    wrap=False)
+
     def _process_metering_rule_action(self, router, action):
         rm = self.routers.get(router['id'])
         if not rm:
@@ -293,6 +294,17 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
                 rules_chain = iptables_manager.get_chain_name(WRAP_NAME +
                                                               RULE + label_id,
                                                               wrap=False)
+
+                filter_table = rm.iptables_manager.ipv4['filter']
+                is_missing_chain = (action == 'create' and
+                                    not filter_table.chain_exists(label_chain,
+                                                                  wrap=False))
+                if is_missing_chain:
+                    self._create_metering_label_chain(rm,
+                                                      label_chain,
+                                                      rules_chain)
+                    rm.metering_labels[label_id] = label
+
                 rule = label.get('rule')
                 if rule:
                     if action == 'create':
@@ -339,6 +351,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
     @log_helpers.log_method_call
     def get_traffic_counters(self, context, routers):
         accs = {}
+        routers_to_reconfigure = set()
         for router in routers:
             rm = self.routers.get(router['id'])
             if not rm:
@@ -356,6 +369,7 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
                 except RuntimeError:
                     LOG.exception(_LE('Failed to get traffic counters, '
                                       'router: %s'), router)
+                    routers_to_reconfigure.add(router['id'])
                     continue
 
                 if not chain_acc:
@@ -367,5 +381,8 @@ class IptablesMeteringDriver(abstract_driver.MeteringAbstractDriver):
                 acc['bytes'] += chain_acc['bytes']
 
                 accs[label_id] = acc
+
+        for router_id in routers_to_reconfigure:
+            self.routers.pop(router_id, None)
 
         return accs

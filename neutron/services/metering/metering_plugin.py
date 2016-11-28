@@ -41,7 +41,7 @@ class MeteringPlugin(metering_db.MeteringDbMixin):
         label = super(MeteringPlugin, self).create_metering_label(
             context, metering_label)
 
-        data = self.get_sync_data_metering(context)
+        data = self.get_sync_data_metering(context, label['id'])
         self.meter_rpc.add_metering_label(context, data)
 
         return label

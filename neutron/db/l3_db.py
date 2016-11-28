@@ -37,6 +37,7 @@ from neutron.common import rpc as n_rpc
 from neutron.common import utils
 from neutron.db import api as db_api
 from neutron.db import l3_agentschedulers_db as l3_agt
+from neutron.db import l3_metering_db
 from neutron.db import model_base
 from neutron.db import models_v2
 from neutron.db import standardattrdescription_db as st_attr
@@ -80,6 +81,8 @@ class RouterPort(model_base.BASEV2):
         models_v2.Port,
         backref=orm.backref('routerport', uselist=False, cascade="all,delete"),
         lazy='joined')
+    rate_limit = sa.Column(sa.Integer(), default=0, server_default='0',
+                           nullable=False)
 
 
 class Router(model_base.HasStandardAttributes, model_base.BASEV2,
@@ -108,6 +111,7 @@ class FloatingIP(model_base.HasStandardAttributes, model_base.BASEV2,
     may not be associated with an internal port/ip address/router.
     """
 
+    name = sa.Column(sa.String(attributes.NAME_MAX_LEN))
     floating_ip_address = sa.Column(sa.String(64), nullable=False)
     floating_network_id = sa.Column(sa.String(36), nullable=False)
     floating_port_id = sa.Column(sa.String(36),
@@ -134,6 +138,7 @@ class FloatingIP(model_base.HasStandardAttributes, model_base.BASEV2,
 
 
 class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
+                          l3_metering_db.L3_metering_db_mixin,
                           st_attr.StandardAttrDescriptionMixin):
     """Mixin class to add L3/NAT router methods to db_base_plugin_v2."""
 
@@ -447,24 +452,54 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                                       {'fixed_ips': ext_ips}})
         context.session.expire(router.gw_port)
 
+    def _is_unset_res_rate_limit_allowed(self, context, res_type, res):
+        if (not context.is_admin and 'rate_limit' in res and
+                res['rate_limit'] == 0):
+            msg = (_("You are not permitted to set %s rate limit "
+                     "to 0.") % res_type)
+            raise n_exc.BadRequest(resource=res_type, msg=msg)
+
     def _update_router_gw_info(self, context, router_id, info, router=None):
+        gateway_rate_limit = utils.is_extension_supported(self,
+                                                          'gateway-rate-limit')
+        if gateway_rate_limit:
+            self._is_unset_res_rate_limit_allowed(
+                context, 'router gateway', info)
+
         # TODO(salvatore-orlando): guarantee atomic behavior also across
         # operations that span beyond the model classes handled by this
         # class (e.g.: delete_port)
         router = router or self._get_router(context, router_id)
-        gw_port = router.gw_port
+        old_gw_port = gw_port = router.gw_port
         ext_ips = info.get('external_fixed_ips') if info else []
         ext_ip_change = self._check_for_external_ip_change(
             context, gw_port, ext_ips)
         network_id = self._validate_gw_info(context, gw_port, info, ext_ips)
+        rate = info.get('rate_limit') if info else None
         if gw_port and ext_ip_change and gw_port['network_id'] == network_id:
             self._update_current_gw_port(context, router_id, router,
                                          ext_ips)
+        elif (gateway_rate_limit and not ext_ip_change
+              and gw_port and gw_port['network_id'] == network_id
+              and rate is not None):
+            # Nothing changed but maybe gateway rate limit
+            self._check_and_update_gw_router_port(context, router_id,
+                                                  router.gw_port['id'], rate)
         else:
             self._delete_current_gw_port(context, router_id, router,
                                          network_id)
             self._create_gw_port(context, router_id, router, network_id,
                                  ext_ips)
+        new_gw_port = router.gw_port
+        if old_gw_port:
+            if not new_gw_port:
+                # Delete old meter-label.
+                self.process_disable_gateway_meter(context, router['id'])
+            # TODO(zhengwei): delete old meter-label and new meter-label.
+        elif new_gw_port and new_gw_port['fixed_ips']:
+            # Add meter-label for gateway.
+            ip_address = new_gw_port['fixed_ips'][0]['ip_address']
+            self.process_enable_gateway_meter(context, router, ip_address)
 
     def _check_for_external_ip_change(self, context, gw_port, ext_ips):
         # determine if new external IPs differ from the existing fixed_ips
@@ -501,6 +536,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
 
         #TODO(nati) Refactor here when we have router insertion model
         router = self._ensure_router_not_in_use(context, id)
+        old_router = self._make_router_dict_with_gw_port(router, None)
         self._delete_current_gw_port(context, id, router, None)
 
         router_ports = router.attached_ports.all()
@@ -510,6 +546,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                                           l3_port_check=False)
         with context.session.begin(subtransactions=True):
             context.session.delete(router)
+        if 'gw_port' in old_router:
+            self.process_disable_gateway_meter(context, old_router['id'])
 
     def get_router(self, context, id, fields=None):
         router = self._get_router(context, id)
@@ -881,6 +919,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                         network_id=gw_network_id,
                         gateway_ips=gw_ips,
                         port=port)
+        if router.gw_port:
+            self.process_disattach_router_interface_meter(context, port)
         return self._make_router_interface_info(router_id, port['tenant_id'],
                                                 port['id'], port['network_id'],
                                                 subnets[0]['id'],
@@ -897,9 +937,11 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
     def _make_floatingip_dict(self, floatingip, fields=None,
                               process_extensions=True):
         res = {'id': floatingip['id'],
+               'name': floatingip['name'],
                'tenant_id': floatingip['tenant_id'],
                'floating_ip_address': floatingip['floating_ip_address'],
                'floating_network_id': floatingip['floating_network_id'],
+               'floating_port_id': floatingip['floating_port_id'],
                'router_id': floatingip['router_id'],
                'port_id': floatingip['fixed_port_id'],
                'fixed_ip_address': floatingip['fixed_ip_address'],
@@ -1048,32 +1090,45 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                                                     internal_subnet_id,
                                                     floating_network_id)
 
-        return (fip['port_id'], internal_ip_address, router_id)
+        return internal_ip_address, router_id
 
     def _check_and_get_fip_assoc(self, context, fip, floatingip_db):
-        port_id = internal_ip_address = router_id = None
+        port_id = fip.get('port_id')
+        internal_ip_address = router_id = None
+        floating_network_id = floatingip_db['floating_network_id']
+
         if fip.get('fixed_ip_address') and not fip.get('port_id'):
             msg = _("fixed_ip_address cannot be specified without a port_id")
             raise n_exc.BadRequest(resource='floatingip', msg=msg)
-        if fip.get('port_id'):
-            port_id, internal_ip_address, router_id = self._get_assoc_data(
+        if port_id:
+            internal_ip_address, router_id = self._get_assoc_data(
                 context,
                 fip,
-                floatingip_db['floating_network_id'])
+                floating_network_id)
+            if port_id == floatingip_db.fixed_port_id:
+                # Floating IP association is not changed.
+                return port_id, internal_ip_address, router_id
+
             fip_qry = context.session.query(FloatingIP)
             try:
                 fip_qry.filter_by(
                     fixed_port_id=fip['port_id'],
-                    floating_network_id=floatingip_db['floating_network_id'],
+                    floating_network_id=floating_network_id,
                     fixed_ip_address=internal_ip_address).one()
                 raise l3.FloatingIPPortAlreadyAssociated(
                     port_id=fip['port_id'],
                     fip_id=floatingip_db['id'],
                     floating_ip_address=floatingip_db['floating_ip_address'],
                     fixed_ip=internal_ip_address,
-                    net_id=floatingip_db['floating_network_id'])
+                    net_id=floating_network_id)
             except exc.NoResultFound:
                 pass
+
+        if 'port_id' not in fip and floatingip_db.fixed_port_id:
+            fip['port_id'] = port_id = floatingip_db.fixed_port_id
+            internal_ip_address, router_id = self._get_assoc_data(
+                context, fip, floating_network_id)
+
         return port_id, internal_ip_address, router_id
 
     def _update_fip_assoc(self, context, fip, floatingip_db, external_port):
@@ -1086,6 +1141,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                   'last_known_router_id': previous_router_id}
         if 'description' in fip:
             update['description'] = fip['description']
+        if 'name' in fip:
+            update['name'] = fip['name']
         floatingip_db.update(update)
         next_hop = None
         if router_id:
@@ -1119,6 +1176,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             initial_status=l3_constants.FLOATINGIP_STATUS_ACTIVE):
         fip = floatingip['floatingip']
         fip_id = uuidutils.generate_uuid()
+
+        fip_rate_limit = utils.is_extension_supported(self, 'fip-rate-limit')
+        if fip_rate_limit:
+            self._is_unset_res_rate_limit_allowed(context, 'floatingip', fip)
 
         f_net_id = fip['floating_network_id']
         if not self._core_plugin._network_is_external(context, f_net_id):
@@ -1166,6 +1227,7 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             floating_ip_address = floating_fixed_ip['ip_address']
             floatingip_db = FloatingIP(
                 id=fip_id,
+                name=fip.get('name', ''),
                 tenant_id=fip['tenant_id'],
                 status=initial_status,
                 floating_network_id=fip['floating_network_id'],
@@ -1182,6 +1244,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
             if dns_integration:
                 dns_data = self._process_dns_floatingip_create_precommit(
                     context, floatingip_dict, fip)
+            if fip_rate_limit:
+                self._process_extra_fip_rate_limit_create(context,
+                                                          floatingip_db,
+                                                          fip)
 
         if dns_integration:
             self._process_dns_floatingip_create_postcommit(context,
@@ -1189,6 +1255,8 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
                                                            dns_data)
         self._apply_dict_extend_functions(l3.FLOATINGIPS, floatingip_dict,
                                           floatingip_db)
+        if floatingip_dict['port_id']:
+            self.process_associate_floatingip_meter(context, floatingip_dict)
         return floatingip_dict
 
     def create_floatingip(self, context, floatingip,
@@ -1199,23 +1267,46 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         fip = floatingip['floatingip']
         dns_integration = utils.is_extension_supported(self._core_plugin,
                                                        'dns-integration')
+
+        fip_rate_limit = utils.is_extension_supported(self, 'fip-rate-limit')
+        if fip_rate_limit:
+            self._is_unset_res_rate_limit_allowed(context, 'floatingip', fip)
+
         with context.session.begin(subtransactions=True):
             floatingip_db = self._get_floatingip(context, id)
             old_floatingip = self._make_floatingip_dict(floatingip_db)
-            fip['tenant_id'] = floatingip_db['tenant_id']
-            fip['id'] = id
-            fip_port_id = floatingip_db['floating_port_id']
-            self._update_fip_assoc(context, fip, floatingip_db,
-                                   self._core_plugin.get_port(
-                                       context.elevated(), fip_port_id))
+            if fip:
+                fip['tenant_id'] = floatingip_db['tenant_id']
+                fip['id'] = id
+                fip_port_id = floatingip_db['floating_port_id']
+                self._update_fip_assoc(context, fip, floatingip_db,
+                                       self._core_plugin.get_port(
+                                           context.elevated(), fip_port_id))
             floatingip_dict = self._make_floatingip_dict(floatingip_db)
             if dns_integration:
                 dns_data = self._process_dns_floatingip_update_precommit(
                     context, floatingip_dict)
+            if fip_rate_limit:
+                self._process_extra_fip_rate_limit_update(context,
+                                                          floatingip_db,
+                                                          fip,
+                                                          floatingip_dict)
+
         if dns_integration:
             self._process_dns_floatingip_update_postcommit(context,
                                                            floatingip_dict,
                                                            dns_data)
+        if old_floatingip['port_id'] != floatingip_dict['port_id']:
+            if old_floatingip['port_id']:
+                self.process_disassociate_floatingip_meter(context,
+                                                           old_floatingip)
+                if floatingip_dict['port_id']:
+                    self.process_associate_floatingip_meter(context,
+                                                            floatingip_dict)
+            else:
+                self.process_associate_floatingip_meter(context,
+                                                        floatingip_dict)
+
         return old_floatingip, floatingip_dict
 
     def _floatingips_to_router_ids(self, floatingips):
@@ -1246,6 +1337,10 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         self._core_plugin.delete_port(context.elevated(),
                                       floatingip['floating_port_id'],
                                       l3_port_check=False)
+        # Delete meter label that associate with floatingip.
+        if floatingip_dict.get('port_id'):
+            self.process_disassociate_floatingip_meter(context,
+                                                       floatingip_dict)
         return floatingip_dict
 
     def delete_floatingip(self, context, id):
@@ -1356,14 +1451,18 @@ class L3_NAT_dbonly_mixin(l3.RouterPluginBase,
         """
         router_ids = set()
 
+        old_floatingips = []
         with context.session.begin(subtransactions=True):
             fip_qry = context.session.query(FloatingIP)
             floating_ips = fip_qry.filter_by(fixed_port_id=port_id)
             for floating_ip in floating_ips:
+                old_floatingips.append(self._make_floatingip_dict(floating_ip))
                 router_ids.add(floating_ip['router_id'])
                 floating_ip.update({'fixed_port_id': None,
                                     'fixed_ip_address': None,
                                     'router_id': None})
+        for old_floatingip in old_floatingips:
+            self.process_disassociate_floatingip_meter(context, old_floatingip)
         return router_ids
 
     def _build_routers_list(self, context, routers, gw_ports):

@@ -82,6 +82,14 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
             'FORWARD', '-s %s -j $float-snat' % fixed_ip)
         return [mark_traffic_to_floating_ip, mark_traffic_from_fixed_ip]
 
+    def _get_rate_limit_ip_device(self, name=None):
+        name = self.fip_ns.get_rtr_ext_device_name(self.router_id)
+        return ip_lib.IPDevice(name, namespace=self.ns_name)
+
+    def _get_tc_handle_ips(self):
+        fips = self.get_floating_ips()
+        return set([fip['floating_ip_address'] for fip in fips])
+
     def floating_ip_added_dist(self, fip, fip_cidr):
         """Add floating IP to FIP namespace."""
         floating_ip = fip['floating_ip_address']
@@ -487,6 +495,12 @@ class DvrLocalRouter(dvr_router_base.DvrRouterBase):
 
         rule = self._prevent_snat_for_internal_traffic_rule(ext_device_name)
         self.iptables_manager.ipv4['nat'].add_rule(*rule)
+
+    def _handle_router_gateway_rate_limit(self, ex_gw_port, interface_name):
+        pass
+
+    def _handle_router_gateway_port_forwardings(self, ex_gw_port):
+        pass
 
     def _get_address_scope_mark(self):
         # Prepare address scope iptables rule for internal ports

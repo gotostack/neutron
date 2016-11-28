@@ -49,6 +49,7 @@ class MeteringLabel(model_base.BASEV2, model_base.HasId, model_base.HasTenant):
         foreign_keys='MeteringLabel.tenant_id',
         uselist=True)
     shared = sa.Column(sa.Boolean, default=False, server_default=sql.false())
+    router_id = sa.Column(sa.String(64), nullable=True)
 
 
 class MeteringDbMixin(metering.MeteringPluginBase,
@@ -62,18 +63,22 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                'name': metering_label['name'],
                'description': metering_label['description'],
                'shared': metering_label['shared'],
-               'tenant_id': metering_label['tenant_id']}
+               'tenant_id': metering_label['tenant_id'],
+               'router_id': metering_label['router_id']}
         return self._fields(res, fields)
 
     def create_metering_label(self, context, metering_label):
         m = metering_label['metering_label']
+        id = m.get('id') if m.get('id') else uuidutils.generate_uuid()
+        router_id = m.get('router_id')
 
         with context.session.begin(subtransactions=True):
-            metering_db = MeteringLabel(id=uuidutils.generate_uuid(),
+            metering_db = MeteringLabel(id=id,
                                         description=m['description'],
                                         tenant_id=m['tenant_id'],
                                         name=m['name'],
-                                        shared=m['shared'])
+                                        shared=m['shared'],
+                                        router_id=router_id)
             context.session.add(metering_db)
 
         return self._make_metering_label_dict(metering_db)
@@ -163,10 +168,11 @@ class MeteringDbMixin(metering.MeteringPluginBase,
             ip_prefix = m['remote_ip_prefix']
             direction = m['direction']
             excluded = m['excluded']
+            id = m.get('id') if m.get('id') else uuidutils.generate_uuid()
 
             self._validate_cidr(context, label_id, ip_prefix, direction,
                                 excluded)
-            metering_db = MeteringLabelRule(id=uuidutils.generate_uuid(),
+            metering_db = MeteringLabelRule(id=id,
                                             metering_label_id=label_id,
                                             direction=direction,
                                             excluded=m['excluded'],
@@ -204,6 +210,9 @@ class MeteringDbMixin(metering.MeteringPluginBase,
 
         return res
 
+    def _filter_target_router(self, label):
+        return [r for r in label.routers if label.router_id == r['id']]
+
     def _process_sync_metering_data(self, context, labels):
         all_routers = None
 
@@ -215,9 +224,14 @@ class MeteringDbMixin(metering.MeteringPluginBase,
                                                              l3_db.Router)
                 routers = all_routers
             else:
-                routers = label.routers
+                if label.router_id:
+                    routers = self._filter_target_router(label)
+                else:
+                    routers = label.routers
 
             for router in routers:
+                if not router['admin_state_up']:
+                    continue
                 router_dict = routers_dict.get(
                     router['id'],
                     self._make_router_dict(router))
@@ -238,7 +252,10 @@ class MeteringDbMixin(metering.MeteringPluginBase,
         if label.shared:
             routers = self._get_collection_query(context, l3_db.Router)
         else:
-            routers = label.routers
+            if label.router_id:
+                routers = self._filter_target_router(label)
+            else:
+                routers = label.routers
 
         routers_dict = {}
         for router in routers:
@@ -250,13 +267,10 @@ class MeteringDbMixin(metering.MeteringPluginBase,
 
         return list(routers_dict.values())
 
-    def get_sync_data_metering(self, context, label_id=None, router_ids=None):
+    def get_sync_data_metering(self, context, label_id=None):
         labels = context.session.query(MeteringLabel)
 
         if label_id:
             labels = labels.filter(MeteringLabel.id == label_id)
-        elif router_ids:
-            labels = (labels.join(MeteringLabel.routers).
-                      filter(l3_db.Router.id.in_(router_ids)))
 
         return self._process_sync_metering_data(context, labels)

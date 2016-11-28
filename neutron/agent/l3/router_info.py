@@ -21,6 +21,7 @@ from neutron.agent.l3 import namespaces
 from neutron.agent.linux import ip_lib
 from neutron.agent.linux import iptables_manager
 from neutron.agent.linux import ra
+from neutron.agent.linux import tc_lib
 from neutron.common import constants as l3_constants
 from neutron.common import exceptions as n_exc
 from neutron.common import ipv6_utils
@@ -71,6 +72,13 @@ class RouterInfo(object):
         self.driver = interface_driver
         # radvd is a neutron.agent.linux.ra.DaemonMonitor
         self.radvd = None
+
+        self.ingress_ratelimits = {}
+        self.egress_ratelimits = {}
+
+        self.portforwardings = []
+
+        self.gateway_ips = set()
 
     def initialize(self, process_monitor):
         """Initialize the router on the system.
@@ -281,8 +289,27 @@ class RouterInfo(object):
     def gateway_redirect_cleanup(self, rtr_interface):
         pass
 
+    def remove_fip_rate_limit(self, device, ip_cidr):
+        fip_ip = ip_cidr[:ip_cidr.index('/')]
+        self._remove_fip_rate_limit(device, fip_ip)
+
+    def _remove_ip_ratelimit_cache(self, ip, direction):
+        # remove cache
+        ratelimits = direction + "_ratelimits"
+        old_rate_limits = getattr(self, ratelimits, {})
+        old_rate_limits.pop(ip, None)
+
+    def _remove_fip_rate_limit(self, device, fip_ip):
+        tc_wrapper = self._get_tc_wrapper(device)
+        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+            if device.exists():
+                tc_wrapper.clear_ip_rate_limit(direction, fip_ip)
+
+            self._remove_ip_ratelimit_cache(fip_ip, direction)
+
     def remove_floating_ip(self, device, ip_cidr):
         device.delete_addr_and_conntrack_state(ip_cidr)
+        self.remove_fip_rate_limit(device, ip_cidr)
 
     def move_floating_ip(self, fip):
         return l3_constants.FLOATINGIP_STATUS_ACTIVE
@@ -292,6 +319,38 @@ class RouterInfo(object):
 
     def get_router_cidrs(self, device):
         return set([addr['cidr'] for addr in device.addr.list()])
+
+    def _get_tc_wrapper(self, device):
+        return tc_lib.FloatingIPTcCommand(device.name,
+                                          namespace=device.namespace)
+
+    def process_ip_rate_limit(self, ip, rate, direction, device):
+        ratelimits = direction + "_ratelimits"
+        old_rate_limits = getattr(self, ratelimits, {})
+        old_rate = old_rate_limits.get(ip)
+
+        if (old_rate and old_rate == rate) or (not old_rate and rate == 0):
+            # 1. Floating IP rate limit does not change.
+            # 2. New added floating IP bandwidth does not limit.
+            return
+
+        tc_wrapper = self._get_tc_wrapper(device)
+
+        if rate == 0 and old_rate > 0:
+            # Floating IP bandwidth does not limit.
+            tc_wrapper.clear_ip_rate_limit(direction, ip)
+            old_rate_limits.pop(ip, None)
+            return
+
+        # Finally, add or update floating IP rate limit
+        if old_rate > 0 and rate > 0 and old_rate != rate:
+            tc_wrapper.clear_ip_rate_limit(direction, ip)
+        tc_wrapper.set_ip_rate_limit(direction, ip, rate)
+        old_rate_limits[ip] = rate
+
+    def _get_rate_limit_ip_device(self, name=None):
+        if name:
+            return ip_lib.IPDevice(name, namespace=self.ns_name)
 
     def process_floating_ip_addresses(self, interface_name):
         """Configure IP addresses on router's external gateway interface.
@@ -306,9 +365,10 @@ class RouterInfo(object):
                       self.router['id'])
             return fip_statuses
 
-        device = ip_lib.IPDevice(interface_name, namespace=self.ns_name)
+        device = self._get_rate_limit_ip_device(interface_name)
         existing_cidrs = self.get_router_cidrs(device)
         new_cidrs = set()
+        gw_cidrs = self._get_gw_ips_cidr()
 
         floating_ips = self.get_floating_ips()
         # Loop once to ensure that floating ips are configured.
@@ -334,8 +394,16 @@ class RouterInfo(object):
                 # mark the status as not changed. we can't remove it because
                 # that's how the caller determines that it was removed
                 fip_statuses[fip['id']] = FLOATINGIP_STATUS_NOCHANGE
+
+            # process floating IP rate limit
+            rate = fip['rate_limit']
+            for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+                if device.exists():
+                    self.process_ip_rate_limit(
+                        fip_ip, rate, direction, device)
+
         fips_to_remove = (
-            ip_cidr for ip_cidr in existing_cidrs - new_cidrs
+            ip_cidr for ip_cidr in existing_cidrs - new_cidrs - gw_cidrs
             if common_utils.is_cidr_host(ip_cidr))
         for ip_cidr in fips_to_remove:
             LOG.debug("Removing floating ip %s from interface %s in "
@@ -343,6 +411,17 @@ class RouterInfo(object):
             self.remove_floating_ip(device, ip_cidr)
 
         return fip_statuses
+
+    def _get_gw_ips_cidr(self):
+        gw_cidrs = set()
+        ex_gw_port = self.get_ex_gw_port()
+        if ex_gw_port:
+            for ip_addr in ex_gw_port['fixed_ips']:
+                ex_gw_ip = ip_addr['ip_address']
+                addr = netaddr.IPAddress(ex_gw_ip)
+                if addr.version == l3_constants.IP_VERSION_4:
+                    gw_cidrs.add(common_utils.ip_to_cidr(ex_gw_ip))
+        return gw_cidrs
 
     def configure_fip_addresses(self, interface_name):
         try:
@@ -667,10 +746,11 @@ class RouterInfo(object):
                   ex_gw_port, interface_name)
         device = ip_lib.IPDevice(interface_name, namespace=self.ns_name)
         for ip_addr in ex_gw_port['fixed_ips']:
+            prefixlen = ip_addr.get('prefixlen')
             self.remove_external_gateway_ip(device,
                                             common_utils.ip_to_cidr(
                                                 ip_addr['ip_address'],
-                                                ip_addr['prefixlen']))
+                                                prefixlen))
         self.driver.unplug(interface_name,
                            bridge=self.agent_conf.external_network_bridge,
                            namespace=self.ns_name,
@@ -717,6 +797,8 @@ class RouterInfo(object):
         # Process SNAT rules for external gateway
         gw_port = self._router.get('gw_port')
         self._handle_router_snat_rules(gw_port, interface_name)
+        self._handle_router_gateway_rate_limit(gw_port, interface_name)
+        self._handle_router_gateway_port_forwardings(ex_gw_port)
 
     def _prevent_snat_for_internal_traffic_rule(self, interface_name):
         return (
@@ -792,6 +874,39 @@ class RouterInfo(object):
                              self.iptables_manager,
                              interface_name)
 
+    def _empty_router_gateway_rate_limits(self, tc_wrapper):
+        for ip in self.gateway_ips:
+            for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+                tc_wrapper.clear_ip_rate_limit(direction, ip)
+        self.gateway_ips.clear()
+
+    def _handle_router_gateway_rate_limit(self, ex_gw_port, interface_name):
+        self._add_gateway_tc_rules(ex_gw_port, interface_name)
+
+    def _get_gateway_tc_rule_device(self, interface_name):
+        return ip_lib.IPDevice(interface_name, namespace=self.ns_name)
+
+    def _set_gateway_tc_rules(self, device, ex_gw_port):
+        tc_wrapper = self._get_tc_wrapper(device)
+        self._empty_router_gateway_rate_limits(tc_wrapper)
+
+        rate = self.router['external_gateway_info']['rate_limit']
+        for ip_addr in ex_gw_port['fixed_ips']:
+            ex_gw_ip = ip_addr['ip_address']
+            if netaddr.IPAddress(ex_gw_ip).version == 4:
+                if self._snat_enabled:
+                    self._set_gateway_ip_rate_limit(tc_wrapper, ex_gw_ip, rate)
+
+    def _set_gateway_ip_rate_limit(self, tc_wrapper, ex_gw_ip, rate):
+        self.gateway_ips.add(ex_gw_ip)
+        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+            tc_wrapper.set_ip_rate_limit(direction, ex_gw_ip, rate)
+
+    def _add_gateway_tc_rules(self, ex_gw_port, interface_name):
+        device = self._get_gateway_tc_rule_device(interface_name)
+        if ex_gw_port:
+            self._set_gateway_tc_rules(device, ex_gw_port)
+
     def _process_external_on_delete(self, agent):
         fip_statuses = {}
         try:
@@ -811,6 +926,33 @@ class RouterInfo(object):
         finally:
             self.update_fip_statuses(agent, fip_statuses)
 
+    def _get_tc_handle_ips(self):
+        fips = self.get_floating_ips()
+        floating_ips = set([fip['floating_ip_address'] for fip in fips])
+        return floating_ips | self.gateway_ips
+
+    def _delete_stale_tc_rules(self, ex_gw_port_id):
+        interface_name = self.get_external_device_name(ex_gw_port_id)
+        device = self._get_rate_limit_ip_device(interface_name)
+        if not device or not device.exists():
+            return
+        tc_wrapper = self._get_tc_wrapper(device)
+        ips = self._get_tc_handle_ips()
+
+        for direction in tc_lib.RATE_LIMIT_DIRECTIONS:
+            new_filters = set()
+            for ip in ips:
+                try:
+                    filter_id = tc_wrapper.get_filter_id_for_ip(direction, ip)
+                    if filter_id:
+                        new_filters.add(filter_id)
+                except tc_lib.FilterIDForIPNotFound:
+                    pass
+            existed_filter_ids = tc_wrapper.get_existed_filter_ids(direction)
+            if existed_filter_ids:
+                removed_filters = set(existed_filter_ids) - new_filters
+                tc_wrapper.delete_filter_ids(direction, removed_filters)
+
     def process_external(self, agent):
         fip_statuses = {}
         try:
@@ -829,6 +971,7 @@ class RouterInfo(object):
                 ex_gw_port)
             fip_statuses = self.configure_fip_addresses(interface_name)
 
+            self._delete_stale_tc_rules(ex_gw_port['id'])
         except (n_exc.FloatingIpSetupException,
                 n_exc.IpTablesApplyException):
                 # All floating IPs must be put in error state
@@ -958,6 +1101,90 @@ class RouterInfo(object):
         with self.iptables_manager.defer_apply():
             self.process_ports_address_scope_iptables()
             self.process_floating_ip_address_scope_rules()
+
+    def _handle_router_gateway_port_forwardings(self, ex_gw_port):
+        self._handle_router_gateway_port_forwarding_rules(
+            ex_gw_port, self.iptables_manager)
+
+    def _handle_router_gateway_port_forwarding_snat_rules(
+            self, external_ip, iptables_manager):
+        portfwds = self.router['portforwardings']
+        for portfwd in portfwds:
+            portfwd['outside_addr'] = external_ip
+            rule = ("-p %(protocol)s"
+                    " -s %(inside_addr)s --sport %(inside_port)s"
+                    " -j SNAT --to %(outside_addr)s:%(outside_port)s"
+                    % portfwd)
+            LOG.debug("Added portforwarding rule_out is '%s'", rule)
+            iptables_manager.ipv4['nat'].add_rule("snat", rule,
+                                                  top=True,
+                                                  tag='portforwarding')
+
+    def _get_gateway_port_external_ip(self, ex_gw_port):
+        if ex_gw_port:
+            # ex_gw_port should not be None in this case
+            # port forwarding rules are added only if ex_gw_port
+            # has an IPv4 address
+            for ip_addr in ex_gw_port['fixed_ips']:
+                ex_gw_ip = ip_addr['ip_address']
+                if netaddr.IPAddress(ex_gw_ip).version == 4:
+                    if self._snat_enabled:
+                        return ex_gw_ip
+
+    def _handle_router_gateway_port_forwarding_rules(
+            self, ex_gw_port, iptables_manager):
+        """Configure port forwarding rules for the router's gateway IP.
+
+        Configures iptables port forwarding rules for the gateway IP of
+        the given router
+        """
+        gw_ext_ip = self._get_gateway_port_external_ip(ex_gw_port)
+        if not gw_ext_ip:
+            return
+
+        self._handle_router_gateway_port_forwarding_snat_rules(
+            gw_ext_ip, iptables_manager)
+        self._handle_router_gateway_port_forwarding_prerouting_rules(
+            gw_ext_ip, iptables_manager)
+
+    def _handle_router_gateway_port_forwarding_prerouting_rules(
+            self, gw_ext_ip, iptables_manager):
+        new_portfwds = self.router['portforwardings']
+
+        # In case the gateway IP was changed but port forwarding rules not
+        for portfwd in new_portfwds:
+            portfwd['outside_addr'] = gw_ext_ip
+
+        old_portfwds = self.portforwardings
+        adds, removes = common_utils.diff_list_of_dict(old_portfwds,
+                                                       new_portfwds)
+        for portfwd in adds:
+            self._update_port_forwarding_prerouting_rule('create',
+                                                         portfwd,
+                                                         iptables_manager)
+        for portfwd in removes:
+            self._update_port_forwarding_prerouting_rule('delete',
+                                                         portfwd,
+                                                         iptables_manager)
+        self.portforwardings = new_portfwds
+
+    def _update_port_forwarding_prerouting_rule(
+            self, operation, portfwd, iptables_manager):
+        """Configure the router's port forwarding rules."""
+        chain_in = "PREROUTING"
+        rule = ("-p %(protocol)s"
+                " -d %(outside_addr)s --dport %(outside_port)s"
+                " -j DNAT --to %(inside_addr)s:%(inside_port)s"
+                % portfwd)
+
+        if operation == 'create':
+            LOG.debug("Added portforwarding rule_in is '%s'", rule)
+            iptables_manager.ipv4['nat'].add_rule(chain_in, rule,
+                                                  tag='portforwarding')
+
+        if operation == 'delete':
+            LOG.debug("Removed portforwarding rule_in is '%s'", rule)
+            iptables_manager.ipv4['nat'].remove_rule(chain_in, rule)
 
     @common_utils.exception_logger()
     def process_delete(self, agent):
