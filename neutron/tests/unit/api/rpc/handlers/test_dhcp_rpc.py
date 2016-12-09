@@ -17,10 +17,9 @@ import mock
 from oslo_db import exception as db_exc
 
 from neutron.api.rpc.handlers import dhcp_rpc
+from neutron.callbacks import resources
 from neutron.common import constants
 from neutron.common import exceptions as n_exc
-from neutron.callbacks import resources
-from neutron.common import exceptions
 from neutron.common import utils
 from neutron.db import provisioning_blocks
 from neutron.extensions import portbindings

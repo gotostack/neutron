@@ -25,8 +25,8 @@ from oslo_utils import excutils
 
 from neutron._i18n import _, _LW
 from neutron.api.v2 import attributes
-from neutron.common import constants
 from neutron.callbacks import resources
+from neutron.common import constants
 from neutron.common import exceptions as n_exc
 from neutron.common import utils
 from neutron.db import api as db_api

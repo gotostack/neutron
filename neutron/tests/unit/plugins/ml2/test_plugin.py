@@ -580,10 +580,11 @@ class TestMl2PortsV2(test_plugin.TestPortsV2, Ml2PluginV2TestCase):
 
     def test_create_router_port_and_fail_create_postcommit(self):
 
-        with mock.patch.object(managers.MechanismManager,
-                               'create_port_postcommit',
-                               side_effect=ml2_exc.MechanismDriverError(
-                                   method='create_port_postcommit')):
+        with mock.patch.object(
+                'neutron.plugins.ml2.managers.MechanismManager.'
+                'create_port_postcommit',
+                side_effect=ml2_exc.MechanismDriverError(
+                    method='create_port_postcommit')):
             l3_plugin = manager.NeutronManager.get_service_plugins().get(
                             p_const.L3_ROUTER_NAT)
             data = {'router': {'name': 'router', 'admin_state_up': True,

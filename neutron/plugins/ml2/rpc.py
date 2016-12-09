@@ -22,7 +22,6 @@ from neutron.api.rpc.handlers import dvr_rpc
 from neutron.api.rpc.handlers import securitygroups_rpc as sg_rpc
 from neutron.callbacks import resources
 from neutron.common import constants as n_const
-from neutron.common import exceptions
 from neutron.common import rpc as n_rpc
 from neutron.common import topics
 from neutron.db import l3_hamode_db

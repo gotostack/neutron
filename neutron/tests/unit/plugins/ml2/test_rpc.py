@@ -26,9 +26,8 @@ import oslo_messaging
 from sqlalchemy.orm import exc
 
 from neutron.agent import rpc as agent_rpc
-from neutron.common import constants
-from neutron.common import exceptions
 from neutron.callbacks import resources
+from neutron.common import constants
 from neutron.common import topics
 from neutron.db import provisioning_blocks
 from neutron.plugins.ml2.drivers import type_tunnel
