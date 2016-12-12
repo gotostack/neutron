@@ -4,9 +4,9 @@
 %{!?upstream_version: %global upstream_version %{version}%{?milestone}}
 
 Name:           openstack-%{service}
-Version:        8.1.2
+Version:        8.3.0
 Release:        16%{?dist}
-Epoch:          1
+Epoch:          10
 Summary:        OpenStack Networking Service
 
 License:        ASL 2.0
@@ -644,6 +644,7 @@ fi
 %{_datarootdir}/%{service}/rootwrap/ipset-firewall.filters
 %{_datarootdir}/%{service}/rootwrap/iptables-firewall.filters
 %{_datarootdir}/%{service}/rootwrap/l3.filters
+%{_datarootdir}/%{service}/rootwrap/dibbler.filters
 
 
 %files bgp-dragent
