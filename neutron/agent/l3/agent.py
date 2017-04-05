@@ -472,7 +472,7 @@ class L3NATAgent(ha.AgentMixin,
         ri.router = router
         ri.process()
         registry.notify(resources.ROUTER, events.AFTER_CREATE, self, router=ri)
-        self.l3_ext_manager.add_router(self.context, router)
+        self.l3_ext_manager.add_router(self.context, ri)
 
     def _process_updated_router(self, router):
         is_dvr_only_agent = (self.conf.agent_mode in
@@ -488,7 +488,7 @@ class L3NATAgent(ha.AgentMixin,
                         self, router=ri)
         ri.process()
         registry.notify(resources.ROUTER, events.AFTER_UPDATE, self, router=ri)
-        self.l3_ext_manager.update_router(self.context, router)
+        self.l3_ext_manager.update_router(self.context, ri)
 
     def _resync_router(self, router_update,
                        priority=queue.PRIORITY_SYNC_ROUTERS_TASK):

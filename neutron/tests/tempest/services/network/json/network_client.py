@@ -908,6 +908,21 @@ class NetworkClientJSON(service_client.RestClient):
         body = jsonutils.loads(body)
         return service_client.ResponseBody(resp, body)
 
+    def update_floatingip(self, fip_id, **kwargs):
+        uri = '%s/floatingips/%s' % (self.uri_prefix, fip_id)
+        resp, body = self.get(uri)
+        self.expected_success(200, resp.status)
+        body = jsonutils.loads(body)
+        port_id = body['floatingip']['port_id']
+        update_body = {"port_id": port_id}
+        update_body.update(kwargs)
+        update_body = dict(floatingip=update_body)
+        update_body = jsonutils.dumps(update_body)
+        resp, body = self.put(uri, update_body)
+        self.expected_success(200, resp.status)
+        body = jsonutils.loads(body)
+        return service_client.ResponseBody(resp, body)
+
     def create_network_keystone_v3(self, name, project_id, tenant_id=None):
         uri = '%s/networks' % self.uri_prefix
         post_data = {
