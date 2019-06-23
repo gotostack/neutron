@@ -610,6 +610,16 @@ class TestOVSFirewallDriver(base.BaseTestCase):
         self.mock_bridge.br.add_flow.assert_has_calls(
             [egress_flow_call, ingress_flow_call1, ingress_flow_call2])
 
+        call_args_accept_egress = {
+            "table": ovs_consts.ACCEPTED_EGRESS_TRAFFIC_NORMAL_TABLE,
+            "priority": 100,
+            "dl_dst": port.mac,
+            "reg6": port.vlan_tag,
+            "actions": 'output:{:d}'.format(port.ofport)}
+        accept_egress = mock.call(**call_args_accept_egress)
+        self.mock_bridge.br.add_flow.assert_has_calls(
+            [accept_egress])
+
     def test_delete_all_port_flows(self):
         port_dict = {
             'device': 'port-id',
@@ -639,6 +649,14 @@ class TestOVSFirewallDriver(base.BaseTestCase):
                       "reg6": port.vlan_tag}
         flow3 = mock.call(**call_args3)
 
+        call_args_accept_egress = {
+            "dl_dst": port.mac,
+            "reg6": port.vlan_tag,
+            "priority": 100,
+            "strict": True,
+            "table": ovs_consts.ACCEPTED_EGRESS_TRAFFIC_NORMAL_TABLE}
+        accept_egress = mock.call(**call_args_accept_egress)
+
         call_args4 = {"in_port": port.ofport,
                       "strict": True,
                       "priority": 100,
@@ -649,7 +667,7 @@ class TestOVSFirewallDriver(base.BaseTestCase):
         flow5 = mock.call(**call_args5)
 
         self.mock_bridge.br.delete_flows.assert_has_calls(
-            [flow1, flow2, flow3, flow4, flow5])
+            [flow1, flow2, flow3, accept_egress, flow4, flow5])
 
     def test_prepare_port_filter_initialized_port(self):
         port_dict = {'device': 'port-id',

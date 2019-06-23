@@ -332,3 +332,89 @@ class OVSIntegrationBridge(ovs_bridge.OVSAgentBridge):
     def delete_arp_spoofing_allow_rules(self, port):
         self.uninstall_flows(table_id=constants.ARP_SPOOF_TABLE,
                              in_port=port)
+
+    def add_egress_local_vlan(
+            self, in_port, mac, vlan_tag):
+        self.add_flow(
+            table=constants.LOCAL_SWITCHING,
+            priority=12,
+            in_port=in_port,
+            dl_src=mac,
+            actions='mod_vlan_vid:{:d},resubmit(,{:d})'.format(
+                vlan_tag,
+                constants.TRANSIENT_TABLE)
+        )
+
+    def remove_egress_local_vlan(
+            self, in_port, mac):
+        self.delete_flows(
+            strict=True,
+            table=constants.LOCAL_SWITCHING,
+            priority=12,
+            in_port=in_port,
+            dl_src=mac
+        )
+
+    def install_local_port_direct_flow(
+            self, table, mac, dst_port, **kwargs):
+        self.add_flow(
+            table=table,
+            priority=12,
+            dl_dst=mac,
+            actions='output:{:d}'.format(dst_port),
+            **kwargs
+        )
+
+    def install_l2pop_direct_flow(self, table, mac, **kwargs):
+        self.add_flow(
+            table=table,
+            priority=11,
+            proto='arp',
+            dl_src=mac,
+            dl_dst="ff:ff:ff:ff:ff:ff",
+            actions='normal',
+            **kwargs
+        )
+
+    def install_type_based_direct_flow(self, table, mac, vlan_tag,
+                                       direct_to_ofport,
+                                       **kwargs):
+        self.add_flow(
+            table=table,
+            priority=10,
+            dl_src=mac,
+            actions='mod_vlan_vid:{:d},output:{:d}'.format(
+                vlan_tag,
+                direct_to_ofport),
+            **kwargs
+        )
+
+    def delete_local_port_direct_flow(self, table, mac, **kwargs):
+        # Prevent flood for accepted egress traffic
+        self.delete_flows(
+            strict=True,
+            table=table,
+            priority=12,
+            dl_dst=mac,
+            **kwargs
+        )
+
+    def delete_l2pop_direct_flow(self, table, mac, **kwargs):
+        self.delete_flows(
+            strict=True,
+            table=table,
+            priority=11,
+            proto='arp',
+            dl_src=mac,
+            dl_dst="ff:ff:ff:ff:ff:ff",
+            **kwargs
+        )
+
+    def delete_type_based_direct_flow(self, table, mac, **kwargs):
+        self.delete_flows(
+            strict=True,
+            table=table,
+            priority=10,
+            dl_src=mac,
+            **kwargs
+        )

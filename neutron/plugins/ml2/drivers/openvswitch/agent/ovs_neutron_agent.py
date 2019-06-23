@@ -52,6 +52,7 @@ from neutron.agent.common import ip_lib
 from neutron.agent.common import ovs_lib
 from neutron.agent.common import polling
 from neutron.agent.common import utils
+from neutron.agent import firewall as agent_firewall
 from neutron.agent.l2 import l2_agent_extensions_manager as ext_manager
 from neutron.agent.linux import xenapi_root_helper
 from neutron.agent import rpc as agent_rpc
@@ -273,6 +274,8 @@ class OVSNeutronAgent(l2population_rpc.L2populationRpcCallBackTunnelMixin,
             integration_bridge=self.int_br)
         self.sg_plugin_rpc.register_legacy_sg_notification_callbacks(
             self.sg_agent)
+
+        self.sg_agent.init_ovs_dvr_firewall(self.dvr_agent)
 
         # we default to False to provide backward compat with out of tree
         # firewall drivers that expect the logic that existed on the Neutron
@@ -606,6 +609,12 @@ class OVSNeutronAgent(l2population_rpc.L2populationRpcCallBackTunnelMixin,
                 port_set.remove(port_id)
                 break
 
+    def _get_port_local_vlan(self, port_id):
+        for network_id, port_set in self.network_ports.items():
+            if port_id in port_set:
+                lvm = self.vlan_manager.get(network_id)
+                return lvm.vlan
+
     def process_deleted_ports(self, port_info):
         # don't try to process removed ports as deleted ports since
         # they are already gone
@@ -615,6 +624,18 @@ class OVSNeutronAgent(l2population_rpc.L2populationRpcCallBackTunnelMixin,
         while self.deleted_ports:
             port_id = self.deleted_ports.pop()
             port = self.int_br.get_vif_port_by_id(port_id)
+
+            if (isinstance(self.sg_agent.firewall,
+                           agent_firewall.NoopFirewallDriver) or
+                    not agent_sg_rpc.is_firewall_enabled()):
+                try:
+                    self.delete_accepted_egress_direct_flow(
+                        port.ofport,
+                        port.mac, self._get_port_local_vlan(port_id))
+                except Exception as err:
+                    LOG.debug("Failed to remove accepted egress flows "
+                              "for port %s, error: %s", port_id, err)
+
             self._clean_network_ports(port_id)
             self.ext_manager.delete_port(self.context,
                                          {"vif_port": port,
@@ -1961,6 +1982,9 @@ class OVSNeutronAgent(l2population_rpc.L2populationRpcCallBackTunnelMixin,
         added_ports = (port_info.get('added', set()) - skipped_devices -
                        binding_no_activated_devices)
         self._add_port_tag_info(need_binding_devices)
+
+        self.process_install_ports_egress_flows(need_binding_devices)
+
         self.sg_agent.setup_port_filters(added_ports,
                                          port_info.get('updated', set()))
         LOG.info("process_network_ports - iteration:%(iter_num)d - "
@@ -1985,6 +2009,53 @@ class OVSNeutronAgent(l2population_rpc.L2populationRpcCallBackTunnelMixin,
                       {'iter_num': self.iter_num,
                        'elapsed': time.time() - start})
         return failed_devices
+
+    def process_install_ports_egress_flows(self, ports):
+        if (isinstance(self.sg_agent.firewall,
+                       agent_firewall.NoopFirewallDriver) or
+                not agent_sg_rpc.is_firewall_enabled()):
+            for port in ports:
+                try:
+                    self.install_accepted_egress_direct_flow(port)
+                except Exception as err:
+                    LOG.debug("Failed to install accepted egress flows "
+                              "for port %s, error: %s", port['port_id'], err)
+
+    def install_accepted_egress_direct_flow(self, port_detail):
+        lvm = self.vlan_manager.get(port_detail['network_id'])
+        port = port_detail['vif_port']
+        self.int_br.add_egress_local_vlan(
+            port.ofport, port_detail['mac_address'], lvm.vlan)
+        patch_ofport = None
+        if lvm.network_type in (
+                n_const.TYPE_VXLAN, n_const.TYPE_GRE,
+                n_const.TYPE_GENEVE):
+            port_name = self.conf.OVS.int_peer_patch_port
+            patch_ofport = self.int_br.get_port_ofport(port_name)
+            self.int_br.install_l2pop_direct_flow(
+                constants.TRANSIENT_TABLE,
+                port_detail['mac_address'],
+                dl_vlan=lvm.vlan)
+        elif lvm.network_type == n_const.TYPE_VLAN:
+            bridge = self.bridge_mappings.get(lvm.physical_network)
+            port_name = plugin_utils.get_interface_name(
+                bridge, prefix=constants.PEER_INTEGRATION_PREFIX)
+            patch_ofport = self.int_br.get_port_ofport(port_name)
+
+        if patch_ofport is not None:
+            self.int_br.install_type_based_direct_flow(
+                constants.TRANSIENT_TABLE,
+                port_detail['mac_address'],
+                lvm.vlan,
+                patch_ofport,
+                dl_vlan=lvm.vlan)
+
+    def delete_accepted_egress_direct_flow(self, ofport, mac, vlan):
+        self.int_br.remove_egress_local_vlan(ofport, mac)
+        self.int_br.delete_l2pop_direct_flow(
+            constants.TRANSIENT_TABLE, mac, dl_vlan=vlan)
+        self.int_br.delete_type_based_direct_flow(
+            constants.TRANSIENT_TABLE, mac, dl_vlan=vlan)
 
     def process_ancillary_network_ports(self, port_info):
         failed_devices = {'added': set(), 'removed': set()}

@@ -23,6 +23,8 @@ from neutron_lib.callbacks import events as callbacks_events
 from neutron_lib.callbacks import registry as callbacks_registry
 from neutron_lib.callbacks import resources as callbacks_resources
 from neutron_lib import constants as lib_const
+from neutron_lib.plugins import utils as plugin_utils
+from neutron_lib.utils import helpers
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import netutils
@@ -82,6 +84,26 @@ def get_segmentation_id_from_other_config(bridge, port_name):
         pass
 
 
+def get_network_type_from_other_config(bridge, port_name):
+    """Return network_type stored in OVSDB other_config metadata.
+
+    :param bridge: OVSBridge instance where port is.
+    :param port_name: Name of the port.
+    """
+    other_config = bridge.db_get_val('Port', port_name, 'other_config')
+    return other_config.get('network_type')
+
+
+def get_physical_network_from_other_config(bridge, port_name):
+    """Return physical_network stored in OVSDB other_config metadata.
+
+    :param bridge: OVSBridge instance where port is.
+    :param port_name: Name of the port.
+    """
+    other_config = bridge.db_get_val('Port', port_name, 'other_config')
+    return other_config.get('physical_network')
+
+
 def get_tag_from_other_config(bridge, port_name):
     """Return tag stored in OVSDB other_config metadata.
 
@@ -135,7 +157,8 @@ class SecurityGroup(object):
 
 
 class OFPort(object):
-    def __init__(self, port_dict, ovs_port, vlan_tag, segment_id=None):
+    def __init__(self, port_dict, ovs_port, vlan_tag, segment_id=None,
+                 network_type=None, physical_network=None):
         self.id = port_dict['device']
         self.vlan_tag = vlan_tag
         self.segment_id = segment_id
@@ -148,6 +171,8 @@ class OFPort(object):
         self.neutron_port_dict = port_dict.copy()
         self.allowed_pairs_v4 = self._get_allowed_pairs(port_dict, version=4)
         self.allowed_pairs_v6 = self._get_allowed_pairs(port_dict, version=6)
+        self.network_type = network_type
+        self.physical_network = physical_network
 
     @staticmethod
     def _get_allowed_pairs(port_dict, version):
@@ -535,6 +560,14 @@ class OVSFirewallDriver(firewall.FirewallDriver):
         return get_segmentation_id_from_other_config(
             self.int_br.br, port_name)
 
+    def _get_port_network_type(self, port_name):
+        return get_network_type_from_other_config(
+            self.int_br.br, port_name)
+
+    def _get_port_physical_network(self, port_name):
+        return get_physical_network_from_other_config(
+            self.int_br.br, port_name)
+
     def get_ofport(self, port):
         port_id = port['device']
         return self.sg_port_map.ports.get(port_id)
@@ -552,8 +585,13 @@ class OVSFirewallDriver(firewall.FirewallDriver):
             port_vlan_id = self._get_port_vlan_tag(ovs_port.port_name)
             segment_id = self._get_port_segmentation_id(
                 ovs_port.port_name)
+            network_type = self._get_port_network_type(
+                ovs_port.port_name)
+            physical_network = self._get_port_physical_network(
+                ovs_port.port_name)
             of_port = OFPort(port, ovs_port, port_vlan_id,
-                             segment_id)
+                             segment_id,
+                             network_type, physical_network)
             self.sg_port_map.create_port(of_port, port)
         else:
             if of_port.ofport != ovs_port.ofport:
@@ -976,6 +1014,77 @@ class OVSFirewallDriver(firewall.FirewallDriver):
                 ovs_consts.ACCEPTED_EGRESS_TRAFFIC_NORMAL_TABLE)
         )
 
+        tunnel_direct_info = {"network_type": port.network_type,
+                              "physical_network": port.physical_network}
+        self.install_accepted_egress_direct_flow(
+            port.mac, port.vlan_tag, port.ofport,
+            tunnel_direct_info=tunnel_direct_info)
+
+    def install_accepted_egress_direct_flow(self, mac, vlan_tag, dst_port,
+                                            tunnel_direct_info=None):
+        # Prevent flood for accepted egress traffic
+        params = {"reg_net": vlan_tag}
+        create_reg_numbers(params)
+        self.int_br.br.install_local_port_direct_flow(
+            ovs_consts.ACCEPTED_EGRESS_TRAFFIC_NORMAL_TABLE,
+            mac, dst_port, **params)
+
+        patch_ofport = None
+        # The former flow may not match, that means the destination port is
+        # not in this host. So, we direct it to mapped bridge.
+        if tunnel_direct_info:
+            if tunnel_direct_info["network_type"] in (
+                    lib_const.TYPE_VXLAN, lib_const.TYPE_GRE,
+                    lib_const.TYPE_GENEVE):
+                # L2pop needs to use the original INPORT, so we transmit
+                # the packet to tunnel bridge use NORMAL action as usual.
+                self.int_br.br.install_l2pop_direct_flow(
+                    ovs_consts.ACCEPTED_EGRESS_TRAFFIC_NORMAL_TABLE,
+                    mac,
+                    **params)
+                port_name = cfg.CONF.OVS.int_peer_patch_port
+                # Add local vlan back for tunnel bridge to distinguish each
+                # isolated tenant network.
+                patch_ofport = self.int_br.br.get_port_ofport(port_name)
+            elif tunnel_direct_info["network_type"] == lib_const.TYPE_VLAN:
+                physical_network = tunnel_direct_info["physical_network"]
+                if not physical_network:
+                    return
+                bridge_mappings = helpers.parse_mappings(
+                    cfg.CONF.OVS.bridge_mappings)
+                bridge = bridge_mappings.get(physical_network)
+                port_name = plugin_utils.get_interface_name(
+                    bridge, prefix=ovs_consts.PEER_INTEGRATION_PREFIX)
+                # Add local vlan back for tunnel bridge to distinguish each
+                # isolated tenant network.
+                patch_ofport = self.int_br.br.get_port_ofport(port_name)
+            if patch_ofport is not None:
+                self.int_br.br.install_type_based_direct_flow(
+                    ovs_consts.ACCEPTED_EGRESS_TRAFFIC_NORMAL_TABLE,
+                    mac,
+                    vlan_tag,
+                    patch_ofport,
+                    **params)
+
+    def delete_accepted_egress_direct_flow(self, mac, vlan_tag,
+                                           tunnel_direct_info=None):
+        params = {"reg_net": vlan_tag}
+        create_reg_numbers(params)
+        self.int_br.br.delete_local_port_direct_flow(
+            ovs_consts.ACCEPTED_EGRESS_TRAFFIC_NORMAL_TABLE,
+            mac,
+            **params)
+
+        if tunnel_direct_info:
+            self.int_br.br.delete_l2pop_direct_flow(
+                ovs_consts.ACCEPTED_EGRESS_TRAFFIC_NORMAL_TABLE,
+                mac,
+                **params)
+            self.int_br.br.delete_type_based_direct_flow(
+                ovs_consts.ACCEPTED_EGRESS_TRAFFIC_NORMAL_TABLE,
+                mac,
+                **params)
+
     def _initialize_tracked_egress(self, port):
         # Drop invalid packets
         self._add_flow(
@@ -1253,6 +1362,12 @@ class OVSFirewallDriver(firewall.FirewallDriver):
                                          dl_vlan=port.segment_id)
             self._delete_flows(table=ovs_consts.ACCEPT_OR_INGRESS_TABLE,
                                dl_dst=mac_addr, reg_net=port.vlan_tag)
+
+        tunnel_direct_info = {"network_type": port.network_type,
+                              "physical_network": port.physical_network}
+        self.delete_accepted_egress_direct_flow(
+            port.mac, port.vlan_tag,
+            tunnel_direct_info=tunnel_direct_info)
         self._strict_delete_flow(priority=100,
                                  table=ovs_consts.TRANSIENT_TABLE,
                                  in_port=port.ofport)
