@@ -369,6 +369,8 @@ class OVSNeutronAgent(l2population_rpc.L2populationRpcCallBackTunnelMixin,
 
         self.quitting_rpc_timeout = agent_conf.quitting_rpc_timeout
 
+        self.ingress_direct_flows()
+
     def _parse_bridge_mappings(self, bridge_mappings):
         try:
             return helpers.parse_mappings(bridge_mappings)
@@ -2117,6 +2119,34 @@ class OVSNeutronAgent(l2population_rpc.L2populationRpcCallBackTunnelMixin,
                       'elapsed': time.time() - start})
         return failed_devices
 
+    @property
+    def ingress_direct(self):
+        return ((isinstance(self.sg_agent.firewall,
+                            agent_firewall.NoopFirewallDriver) or
+                 not agent_sg_rpc.is_firewall_enabled()) and
+                self.conf.AGENT.explicitly_egress_direct)
+
+    def ingress_direct_flows(self):
+        if self.ingress_direct:
+
+            for physical_network in self.bridge_mappings:
+                self.int_br.install_goto(
+                    table_id=constants.LOCAL_SWITCHING,
+                    dest_table_id=constants.LOCAL_MAC_DIRECT,
+                    priority=1,
+                    in_port=self.int_ofports[physical_network])
+
+            if self.enable_tunneling:
+                self.int_br.install_goto(
+                    table_id=constants.LOCAL_SWITCHING,
+                    dest_table_id=constants.LOCAL_MAC_DIRECT,
+                    priority=1,
+                    in_port=self.patch_tun_ofport)
+
+            self.int_br.install_goto(
+                table_id=constants.LOCAL_MAC_DIRECT,
+                dest_table_id=constants.TRANSIENT_EGRESS_TABLE)
+
     def process_install_ports_egress_flows(self, ports):
         if not self.conf.AGENT.explicitly_egress_direct:
             return
@@ -2140,19 +2170,28 @@ class OVSNeutronAgent(l2population_rpc.L2populationRpcCallBackTunnelMixin,
         lvm = self.vlan_manager.get(port_detail['network_id'])
         port = port_detail['vif_port']
 
+        if self.ingress_direct:
+            mac_direct_table = constants.LOCAL_MAC_DIRECT
+        else:
+            mac_direct_table = constants.TRANSIENT_EGRESS_TABLE
+
         br_int.add_flow(
             table=constants.TRANSIENT_TABLE,
             priority=9,
             in_port=port.ofport,
             dl_src=port_detail['mac_address'],
             actions='resubmit(,{:d})'.format(
-                constants.TRANSIENT_EGRESS_TABLE))
+                mac_direct_table))
 
+        if self.ingress_direct:
+            direct_action = 'strip_vlan,output:{:d}'.format(port.ofport)
+        else:
+            direct_action = 'output:{:d}'.format(port.ofport)
         br_int.add_flow(
-            table=constants.TRANSIENT_EGRESS_TABLE,
+            table=mac_direct_table,
             priority=12,
             dl_dst=port_detail['mac_address'],
-            actions='output:{:d}'.format(port.ofport))
+            actions=direct_action)
 
         patch_ofport = None
         if lvm.network_type in (
